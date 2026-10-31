@@ -48,6 +48,7 @@ public partial class Form1 : Form
     private string currentStoragePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "QuanLyKho_Data");
     private bool isDarkMode = false;
     private bool isTopBarVisible = true;
+    private int retryCount = 0;
 
     public Form1()
     {
@@ -85,7 +86,7 @@ public partial class Form1 : Form
                 var savedUrl = key.GetValue(RegValueServerUrl) as string;
                 if (!string.IsNullOrWhiteSpace(savedUrl))
                 {
-                    if (savedUrl.Contains(":3000")) currentServerUrl = DefaultLocalUrl;
+                    if (savedUrl.Contains(":3000") || savedUrl.Contains("trycloudflare.com")) currentServerUrl = DefaultLocalUrl;
                     else currentServerUrl = savedUrl;
                 }
 
@@ -145,6 +146,16 @@ public partial class Form1 : Form
         {
             using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath);
             key?.SetValue(RegValueTopBarVisible, visible ? "1" : "0", RegistryValueKind.String);
+        }
+        catch { }
+    }
+
+    private void SaveServerUrl(string url)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath);
+            key?.SetValue(RegValueServerUrl, url, RegistryValueKind.String);
         }
         catch { }
     }
@@ -410,26 +421,73 @@ public partial class Form1 : Form
                 }
             };
 
+            webView.CoreWebView2.WebMessageReceived += (s, e) =>
+            {
+                try
+                {
+                    var msg = e.TryGetWebMessageAsString();
+                    if (msg == "retry_local")
+                    {
+                        currentServerUrl = DefaultLocalUrl;
+                        SaveServerUrl(DefaultLocalUrl);
+                        webView.CoreWebView2.Navigate(currentServerUrl);
+                    }
+                    else if (msg == "open_settings")
+                    {
+                        ShowUnifiedSettingsDialog();
+                    }
+                }
+                catch { }
+            };
+
             webView.CoreWebView2.NavigationCompleted += (s, e) =>
             {
                 ApplyThemeToWebView();
 
+                if (e.IsSuccess)
+                {
+                    retryCount = 0;
+                    return;
+                }
+
                 if (!e.IsSuccess && !IsExpiredOrTampered())
                 {
-                    if (currentServerUrl == DefaultLocalUrl)
+                    // 1. Nếu đang kết nối Online / Tunnel mà lỗi -> Tự động chuyển ngay về Localhost
+                    if (currentServerUrl != DefaultLocalUrl)
                     {
-                        currentServerUrl = DefaultTunnelUrl;
+                        currentServerUrl = DefaultLocalUrl;
+                        SaveServerUrl(DefaultLocalUrl);
                         webView.CoreWebView2.Navigate(currentServerUrl);
                         return;
                     }
 
+                    // 2. Nếu là Localhost mà lỗi (ví dụ docker vừa khởi động lại) -> thử lại 1 lần sau 1.5s
+                    if (retryCount < 2)
+                    {
+                        retryCount++;
+                        Task.Delay(1500).ContinueWith(_ =>
+                        {
+                            if (!this.IsDisposed && this.IsHandleCreated)
+                            {
+                                this.Invoke(() => webView.CoreWebView2?.Navigate(DefaultLocalUrl));
+                            }
+                        });
+                        return;
+                    }
+
+                    retryCount = 0;
                     webView.CoreWebView2.NavigateToString(
-                        "<html><head><meta charset='utf-8'></head>" +
-                        "<body style='font-family:sans-serif;text-align:center;padding:80px 20px;background:#f8fafc;color:#1e293b;'>" +
-                        "<div style='max-width:600px;margin:0 auto;background:#fff;padding:40px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.08);'>" +
-                        "<h2 style='color:#ea580c;margin-bottom:16px;'>⚠️ Chưa Kết Nối Được Đến Máy Chủ Kho</h2>" +
-                        $"<p style='font-size:15px;color:#64748b;line-height:1.6;'>Địa chỉ máy chủ đang kết nối: <code>{currentServerUrl}</code></p>" +
-                        "<p style='font-size:14px;color:#64748b;'>Bấm phím <b>F2</b> hoặc nút <b>[⚙️ Cài Đặt]</b> để chuyển đổi giữa Local và Online.</p>" +
+                        "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Lỗi Kết Nối</title></head>" +
+                        "<body style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;text-align:center;padding:60px 20px;background:#f8fafc;color:#1e293b;margin:0;'>" +
+                        "<div style='max-width:540px;margin:0 auto;background:#ffffff;padding:36px;border-radius:12px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);border:1px solid #e2e8f0;'>" +
+                        "<div style='font-size:42px;margin-bottom:12px;'>⚠️</div>" +
+                        "<h2 style='color:#ea580c;margin:0 0 12px;font-size:20px;font-weight:700;'>Chưa Kết Nối Được Đến Máy Chủ Kho</h2>" +
+                        $"<p style='font-size:14px;color:#64748b;line-height:1.6;margin:0 0 20px;'>Địa chỉ máy chủ đang thử kết nối: <br><strong style='color:#0f172a;word-break:break-all;'>{currentServerUrl}</strong></p>" +
+                        "<div style='display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:16px;'>" +
+                        "<button onclick=\"window.chrome.webview.postMessage('retry_local')\" style='background:#0284c7;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;'>🔄 Kết Nối Máy Chủ Cục Bộ (Localhost)</button>" +
+                        "<button onclick=\"window.chrome.webview.postMessage('open_settings')\" style='background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;'>⚙️ Cài Đặt (F2)</button>" +
+                        "</div>" +
+                        "<p style='font-size:12.5px;color:#94a3b8;margin:0;'>Mẹo: Bấm <b>F2</b> trên bàn phím bất kỳ lúc nào để mở bảng Cài đặt nhanh.</p>" +
                         "</div>" +
                         "</body></html>"
                     );
