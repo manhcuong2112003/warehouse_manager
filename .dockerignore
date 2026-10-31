@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+**/dist
+**/.env*
+.env*
+.git
+test-results
+deploy/certs
+deploy/pki
+deploy/backups
+deploy/backup-settings.json
+deploy/backup-last.json
+*.docx

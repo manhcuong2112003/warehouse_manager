@@ -1,0 +1,35 @@
+name: quanlykho
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment: &database-env
+      POSTGRES_DB: wms
+      POSTGRES_USER: wms_owner
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?Set DB_OWNER_PASSWORD}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?Set DB_APP_PASSWORD}
+    ports: ["127.0.0.1:54329:5432"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/10-app-user.sh:ro
+    healthcheck: &database-health
+      test: ["CMD-SHELL", "pg_isready -U wms_owner -d $$POSTGRES_DB"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis-test:
+    image: redis:8-alpine
+    profiles: [test]
+    ports: ["127.0.0.1:63799:6379"]
+    command: ["redis-server","--save","","--appendonly","no"]
+  postgres-test:
+    image: postgres:17
+    profiles: [test]
+    environment:
+      <<: *database-env
+      POSTGRES_DB: wms_test
+    ports: ["127.0.0.1:54330:5432"]
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck: *database-health
+volumes:
+  postgres_data:

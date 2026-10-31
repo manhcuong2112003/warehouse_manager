@@ -1,0 +1,38 @@
+{
+  "name": "@wms/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/multipart": "^10.1.6",
+    "@nestjs/common": "^12.3.2",
+    "@nestjs/core": "^12.3.2",
+    "@nestjs/platform-fastify": "^12.3.2",
+    "@nestjs/platform-socket.io": "^12.3.2",
+    "@nestjs/websockets": "^12.3.2",
+    "@node-rs/argon2": "^2.2.2",
+    "@socket.io/redis-adapter": "^8.3.0",
+    "csv-parse": "^7.0.3",
+    "dotenv": "^17.2.3",
+    "exceljs": "4.4.0",
+    "pg": "^8.23.1",
+    "pg-query-stream": "^4.10.3",
+    "redis": "^6.3.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "socket.io": "^4.8.1",
+    "unzipper": "^0.10.14",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.5",
+    "@types/pg-query-stream": "^3.1.0",
+    "@types/unzipper": "^0.10.11"
+  }
+}

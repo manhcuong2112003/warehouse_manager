@@ -1,0 +1,38 @@
+{
+  "name": "quan-ly-kho",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "test:backup-tool": "powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File scripts/test-backup-tool.ps1",
+    "dev": "concurrently -k -n api,web \"npm run dev -w @wms/api\" \"npm run dev -w @wms/web\"",
+    "build": "npm run build --workspaces",
+    "check": "npm run check --workspaces",
+    "db:migrate": "tsx apps/api/src/database/migrate.ts",
+    "db:seed": "tsx apps/api/src/database/seed.ts",
+    "test": "tsx --test --test-concurrency=1 apps/api/test/*.test.ts",
+    "test:ui": "tsx scripts/smoke.ts",
+    "test:cluster": "tsx scripts/multi-instance.ts",
+    "benchmark": "tsx scripts/benchmark.ts",
+    "check:lan": "tsx scripts/check-lan.ts",
+    "db:up": "docker compose -f deploy/compose.yml --env-file .env up -d postgres",
+    "db:test": "docker compose -f deploy/compose.yml --env-file .env --profile test up -d --wait postgres-test redis-test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^24.0.0",
+    "concurrently": "^9.2.1",
+    "prettier": "^3.9.10",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "bwip-js": "^4.11.4"
+  }
+}

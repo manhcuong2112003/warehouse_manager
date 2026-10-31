@@ -1,0 +1,48 @@
+name: quanlykho-lan
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wms
+      POSTGRES_USER: wms_owner
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?required}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/10-app-user.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U wms_owner -d wms"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server","--save","","--appendonly","no"]
+  migrate:
+    build: {context: .., dockerfile: deploy/Dockerfile.api}
+    command: ["node","apps/api/dist/database/bootstrap.js"]
+    environment:
+      MIGRATION_DATABASE_URL: postgresql://wms_owner:${DB_OWNER_PASSWORD}@postgres:5432/wms
+      DATABASE_URL: postgresql://wms_app:${DB_APP_PASSWORD}@postgres:5432/wms
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?required}
+    depends_on: {postgres: {condition: service_healthy}}
+  api:
+    build: {context: .., dockerfile: deploy/Dockerfile.api}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://wms_app:${DB_APP_PASSWORD}@postgres:5432/wms
+      WEB_ORIGIN: ${LAN_ORIGIN:?Set https://your-domain}
+      COOKIE_SECURE: "true"
+      REDIS_URL: redis://redis:6379
+    depends_on: {migrate: {condition: service_completed_successfully},redis: {condition: service_started}}
+  web:
+    build: {context: .., dockerfile: deploy/Dockerfile.web}
+    restart: unless-stopped
+    ports: ["443:443"]
+    volumes: ["./certs:/etc/nginx/certs:ro"]
+    depends_on: [api]
+volumes:
+  postgres_data:

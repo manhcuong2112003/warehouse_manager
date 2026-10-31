@@ -1,0 +1,29 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+coverage/
+deploy/certs/
+deploy/pki/
+deploy/backups/
+deploy/backup-settings.json
+deploy/backup-last.json
+test-results/
+*.log
+*.tsbuildinfo
+
+# Desktop App Build & Executables
+bin/
+obj/
+*.exe
+*.dll
+*.pdb
+tools/dist-exe/
+QuanLyKho_WMS.exe.WebView2/
+
+# Test Scratch
+test_barcode.png
+test_bwip.png
+.DS_Store
+Thumbs.db
