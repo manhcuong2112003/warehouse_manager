@@ -106,6 +106,13 @@ export class ImportController {
   @Post(":id/validate") validate(@Req() req: any, @Param("id") id: string) {
     return this.imports.validateJob(req.actor, id);
   }
+  @Post(":id/rows/:rowId/toggle-skip") toggleSkip(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Param("rowId") rowId: string,
+  ) {
+    return this.imports.toggleSkipRow(req.actor, id, rowId);
+  }
   @Post(":id/confirm") confirm(
     @Req() req: any,
     @Param("id") id: string,

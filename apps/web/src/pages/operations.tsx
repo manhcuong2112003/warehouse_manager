@@ -351,7 +351,23 @@ export function Inventory({ warehouse, user }: PageProps) {
             width: 260,
             render: (v, r) => (
               <>
-                <b className="code">{v}</b>
+                {v ? (
+                  <b className="code">{v}</b>
+                ) : (
+                  <span
+                    style={{
+                      background: "#fef08a",
+                      border: "1px dashed #eab308",
+                      borderRadius: 4,
+                      padding: "2px 6px",
+                      color: "#854d0e",
+                      fontWeight: "bold",
+                      fontSize: 11,
+                    }}
+                  >
+                    ⚠️ Chưa có mã
+                  </span>
+                )}
                 <div>{r.specification}</div>
                 {(r.model || r.finished_goods_code) && (
                   <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
@@ -571,7 +587,24 @@ export function Catalog({ warehouse, user }: PageProps) {
                 {
                   title: "Code linh kiện (Part No)",
                   dataIndex: "part_no",
-                  render: (v) => <b className="code">{v}</b>,
+                  render: (v) =>
+                    v ? (
+                      <b className="code">{v}</b>
+                    ) : (
+                      <span
+                        style={{
+                          background: "#fef08a",
+                          border: "1px dashed #eab308",
+                          borderRadius: 4,
+                          padding: "2px 8px",
+                          color: "#854d0e",
+                          fontWeight: "bold",
+                          fontSize: 12,
+                        }}
+                      >
+                        ⚠️ Chưa có mã (Null)
+                      </span>
+                    ),
                 },
                 { title: "Tên vật liệu (Quy cách)", dataIndex: "specification" },
                 { title: "Model sử dụng", dataIndex: "model", render: (v) => v || "—" },
@@ -619,9 +652,10 @@ export function Catalog({ warehouse, user }: PageProps) {
               <Form.Item
                 label="Code linh kiện (Part No)"
                 name="partNo"
-                rules={[{ required: true }]}
+                rules={[{ required: false }]}
+                extra="Có thể để trống nếu linh kiện chưa có mã code chính thức"
               >
-                <Input placeholder="Ví dụ: GH64-10383A-LA" />
+                <Input placeholder="Ví dụ: GH64-10383A-LA (hoặc để trống)" />
               </Form.Item>
               <Form.Item
                 label="Tên vật liệu (Quy cách)"

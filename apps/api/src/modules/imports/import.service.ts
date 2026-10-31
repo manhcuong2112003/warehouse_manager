@@ -426,22 +426,45 @@ export class ImportService {
           if (["PRODUCTS", "VENDORS", "LOCATIONS"].includes(j.kind)) {
             const key = j.kind === "PRODUCTS" ? "part_no" : "code";
             const nameKey = j.kind === "PRODUCTS" ? "specification" : "name";
+
+            if (j.kind === "PRODUCTS") {
+              const rawPart = (n.part_no ?? "").trim();
+              if (
+                !rawPart ||
+                rawPart === "-" ||
+                rawPart.toLowerCase() === "null" ||
+                rawPart.toLowerCase() === "n/a"
+              ) {
+                n.part_no = null;
+                n.is_missing_code = true;
+              }
+            }
+
             if (!n[key] && !n[nameKey]) {
               // Bỏ qua các dòng tiêu đề phụ, sub-header không chứa mã và tên
               continue;
             }
+
             if (!n[key]) {
-              errors.push({
-                column: key,
-                message: `Cột mã (${key}) không được để trống.`,
-              });
+              if (j.kind === "PRODUCTS") {
+                warnings.push(
+                  "Sản phẩm chưa có mã code (null). Ô mã sẽ được tô sáng và quản lý theo tên vật liệu.",
+                );
+              } else {
+                errors.push({
+                  column: key,
+                  message: `Cột mã (${key}) không được để trống.`,
+                });
+              }
             }
+
             if (!n[nameKey]) {
               errors.push({
                 column: nameKey,
                 message: `Cột tên (${nameKey}) không được để trống.`,
               });
             }
+
             if (errors.length) {
               summary.errors++;
               await c.query(
@@ -460,21 +483,55 @@ export class ImportService {
               );
               continue;
             }
-            validate(text, n[key]);
+
+            if (n[key]) validate(text, n[key]);
             validate(text, n[nameKey]);
-            ensure(
-              !seen.has(n[key]),
-              "DUPLICATE_ROW",
-              `Mã "${n[key]}" bị trùng trong file.`,
-              422,
-            );
-            seen.add(n[key]);
+
+            if (n[key]) {
+              if (seen.has(n[key])) {
+                if (j.kind === "PRODUCTS") {
+                  n.is_duplicate = true;
+                  warnings.push(
+                    `Mã "${n[key]}" xuất hiện nhiều lần trong file (hệ thống sẽ tự động gộp thành phẩm/cập nhật).`,
+                  );
+                } else {
+                  errors.push({
+                    column: key,
+                    message: `Mã "${n[key]}" bị trùng trong file.`,
+                  });
+                  summary.errors++;
+                  await c.query(
+                    "INSERT INTO import_rows(job_id,sheet,source_row,original,normalized,errors,warnings,expected_version,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                    [
+                      id,
+                      sheet.name,
+                      idx + j.options.headerRow + 1,
+                      JSON.stringify(original),
+                      JSON.stringify(n),
+                      JSON.stringify(errors),
+                      JSON.stringify(warnings),
+                      null,
+                      "ERROR",
+                    ],
+                  );
+                  continue;
+                }
+              } else {
+                seen.add(n[key]);
+              }
+            }
+
             const existing =
               j.kind === "PRODUCTS"
                 ? (
-                    await c.query("SELECT * FROM products WHERE part_no=$1", [
-                      n.part_no,
-                    ])
+                    n.part_no
+                      ? await c.query("SELECT * FROM products WHERE part_no=$1", [
+                          n.part_no,
+                        ])
+                      : await c.query(
+                          "SELECT * FROM products WHERE part_no IS NULL AND specification=$1",
+                          [n.specification],
+                        )
                   ).rows[0]
                 : j.kind === "VENDORS"
                   ? (
@@ -489,7 +546,7 @@ export class ImportService {
                       )
                     ).rows[0];
             version = existing ? Number(existing.version) : null;
-            n.action = existing ? "UPDATE" : "CREATE";
+            n.action = n.is_duplicate ? "MERGE" : existing ? "UPDATE" : "CREATE";
             if (existing) n.before = existing;
             if (j.kind === "PRODUCTS") {
               n.base_uom = n.base_uom || "PCS";
@@ -756,9 +813,28 @@ export class ImportService {
                   "Không đổi đơn vị tính của sản phẩm đã có lịch sử tồn.",
                   422,
                 );
-              if (row.expected_version === null)
+              if (n.part_no) {
                 r = await c.query(
-                  "INSERT INTO products(part_no,specification,base_uom,default_vendor_code,model,finished_goods_code) VALUES($1,$2,$3,$4,$5,$6) RETURNING id",
+                  `INSERT INTO products(part_no,specification,base_uom,default_vendor_code,model,finished_goods_code)
+                   VALUES($1,$2,$3,$4,$5,$6)
+                   ON CONFLICT (part_no) DO UPDATE
+                   SET specification = EXCLUDED.specification,
+                       base_uom = EXCLUDED.base_uom,
+                       default_vendor_code = COALESCE(EXCLUDED.default_vendor_code, products.default_vendor_code),
+                       model = CASE
+                         WHEN products.model IS NULL OR products.model = '' THEN EXCLUDED.model
+                         WHEN EXCLUDED.model IS NULL OR EXCLUDED.model = '' THEN products.model
+                         WHEN products.model LIKE '%' || EXCLUDED.model || '%' THEN products.model
+                         ELSE products.model || ', ' || EXCLUDED.model
+                       END,
+                       finished_goods_code = CASE
+                         WHEN products.finished_goods_code IS NULL OR products.finished_goods_code = '' THEN EXCLUDED.finished_goods_code
+                         WHEN EXCLUDED.finished_goods_code IS NULL OR EXCLUDED.finished_goods_code = '' THEN products.finished_goods_code
+                         WHEN products.finished_goods_code LIKE '%' || EXCLUDED.finished_goods_code || '%' THEN products.finished_goods_code
+                         ELSE products.finished_goods_code || ', ' || EXCLUDED.finished_goods_code
+                       END,
+                       version = products.version + 1
+                   RETURNING id`,
                   [
                     n.part_no,
                     n.specification,
@@ -768,19 +844,53 @@ export class ImportService {
                     n.finished_goods_code || null,
                   ],
                 );
-              else
-                r = await c.query(
-                  "UPDATE products SET specification=$2,base_uom=$3,default_vendor_code=$4,model=COALESCE($5,model),finished_goods_code=COALESCE($6,finished_goods_code),version=version+1 WHERE part_no=$1 AND version=$7 RETURNING id",
-                  [
-                    n.part_no,
-                    n.specification,
-                    n.base_uom,
-                    n.vendor_code || null,
-                    n.model || null,
-                    n.finished_goods_code || null,
-                    row.expected_version,
-                  ],
-                );
+              } else {
+                const existNull = (
+                  await c.query(
+                    "SELECT id FROM products WHERE part_no IS NULL AND specification=$1 LIMIT 1",
+                    [n.specification],
+                  )
+                ).rows[0];
+                if (existNull) {
+                  r = await c.query(
+                    `UPDATE products
+                     SET base_uom=$2,
+                         default_vendor_code=COALESCE($3, default_vendor_code),
+                         model=CASE
+                           WHEN model IS NULL OR model = '' THEN $4
+                           WHEN $4 IS NULL OR $4 = '' THEN model
+                           WHEN model LIKE '%' || $4 || '%' THEN model
+                           ELSE model || ', ' || $4
+                         END,
+                         finished_goods_code=CASE
+                           WHEN finished_goods_code IS NULL OR finished_goods_code = '' THEN $5
+                           WHEN $5 IS NULL OR $5 = '' THEN finished_goods_code
+                           WHEN finished_goods_code LIKE '%' || $5 || '%' THEN finished_goods_code
+                           ELSE finished_goods_code || ', ' || $5
+                         END,
+                         version=version+1
+                     WHERE id=$1 RETURNING id`,
+                    [
+                      existNull.id,
+                      n.base_uom,
+                      n.vendor_code || null,
+                      n.model || null,
+                      n.finished_goods_code || null,
+                    ],
+                  );
+                } else {
+                  r = await c.query(
+                    "INSERT INTO products(part_no,specification,base_uom,default_vendor_code,model,finished_goods_code) VALUES(NULL,$1,$2,$3,$4,$5) RETURNING id",
+                    [
+                      n.specification,
+                      n.base_uom,
+                      n.vendor_code || null,
+                      n.model || null,
+                      n.finished_goods_code || null,
+                    ],
+                  );
+                }
+              }
             } else if (j.kind === "VENDORS") {
               if (row.expected_version === null)
                 r = await c.query(
@@ -911,5 +1021,60 @@ export class ImportService {
         return summary;
       }),
     );
+  }
+
+  async toggleSkipRow(actor: Actor, jobId: string, rowId: string) {
+    return this.db.transaction(async (c) => {
+      const row = (
+        await c.query("SELECT * FROM import_rows WHERE id=$1 AND job_id=$2", [
+          rowId,
+          jobId,
+        ])
+      ).rows[0];
+      ensure(row, "NOT_FOUND", "Không tìm thấy dòng dữ liệu.", 404);
+      const newStatus = row.status === "SKIPPED" ? "VALID" : "SKIPPED";
+      await c.query("UPDATE import_rows SET status=$1 WHERE id=$2", [
+        newStatus,
+        rowId,
+      ]);
+      const valid = Number(
+        (
+          await c.query(
+            "SELECT COUNT(*) FROM import_rows WHERE job_id=$1 AND status='VALID'",
+            [jobId],
+          )
+        ).rows[0].count,
+      );
+      const skipped = Number(
+        (
+          await c.query(
+            "SELECT COUNT(*) FROM import_rows WHERE job_id=$1 AND status='SKIPPED'",
+            [jobId],
+          )
+        ).rows[0].count,
+      );
+      const errors = Number(
+        (
+          await c.query(
+            "SELECT COUNT(*) FROM import_rows WHERE job_id=$1 AND status='ERROR'",
+            [jobId],
+          )
+        ).rows[0].count,
+      );
+      const j = (
+        await c.query("SELECT * FROM import_jobs WHERE id=$1", [jobId])
+      ).rows[0];
+      const summary = {
+        ...j.summary,
+        valid,
+        skipped,
+        errors,
+      };
+      await c.query(
+        "UPDATE import_jobs SET summary=$1, updated_at=now() WHERE id=$2",
+        [JSON.stringify(summary), jobId],
+      );
+      return { id: rowId, status: newStatus, summary };
+    });
   }
 }

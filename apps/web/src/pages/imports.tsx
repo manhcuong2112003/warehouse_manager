@@ -44,6 +44,7 @@ export function Imports({ warehouse, user }: PageProps) {
     }),
     [profiles, setProfiles] = useState<any[]>([]),
     [busy, setBusy] = useState(false),
+    [rowBusy, setRowBusy] = useState<string | null>(null),
     [ack, setAck] = useState(false);
   const file = useRef<HTMLInputElement>(null),
     confirmKey = useRef(crypto.randomUUID());
@@ -267,6 +268,32 @@ export function Imports({ warehouse, user }: PageProps) {
       message.error(e.message);
     } finally {
       setBusy(false);
+    }
+  };
+  const toggleSkipRow = async (rowId: string) => {
+    if (!job) return;
+    setRowBusy(rowId);
+    try {
+      const res: any = await post(`/imports/${job.id}/rows/${rowId}/toggle-skip`, {});
+      setJob((prev: any) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          summary: res.summary,
+          rows: prev.rows.map((r: any) =>
+            r.id === rowId ? { ...r, status: res.status } : r,
+          ),
+        };
+      });
+      message.success(
+        res.status === "SKIPPED"
+          ? "Đã bỏ qua dòng này khỏi danh sách nhập."
+          : "Đã khôi phục dòng này vào danh sách nhập.",
+      );
+    } catch (e: any) {
+      message.error("Lỗi cập nhật dòng: " + (e.message || "Không xác định"));
+    } finally {
+      setRowBusy(null);
     }
   };
   const sheet = job?.sheets.find((s: any) => s.name === options.sheet),
@@ -543,28 +570,126 @@ export function Imports({ warehouse, user }: PageProps) {
                     {
                       title: "Dòng nguồn",
                       dataIndex: "source_row",
-                      width: 100,
+                      width: 90,
                     },
                     {
                       title: "Dữ liệu nhận diện",
-                      render: (_, r) => (
-                        <>
-                          <b className="code">
-                            {r.normalized?.part_no || r.normalized?.code}
-                          </b>
-                          <div>
-                            {r.normalized?.mes_pack_no ||
-                              r.normalized?.specification ||
-                              r.normalized?.name}
-                          </div>
-                        </>
-                      ),
+                      render: (_, r) => {
+                        const isMissingCode =
+                          r.normalized?.is_missing_code ||
+                          !r.normalized?.part_no;
+                        const isDuplicate =
+                          r.normalized?.is_duplicate ||
+                          r.normalized?.action === "MERGE";
+                        return (
+                          <>
+                            {isMissingCode ? (
+                              <div
+                                style={{
+                                  background: "#fef08a",
+                                  border: "1.5px solid #eab308",
+                                  borderRadius: 6,
+                                  padding: "3px 8px",
+                                  color: "#854d0e",
+                                  fontWeight: "bold",
+                                  fontSize: 12,
+                                  display: "inline-block",
+                                  marginBottom: 4,
+                                  boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                                }}
+                              >
+                                ⚠️ CHƯA CÓ MÃ CODE (NULL)
+                              </div>
+                            ) : (
+                              <b className="code">
+                                {r.normalized?.part_no || r.normalized?.code}
+                              </b>
+                            )}
+                            {isDuplicate && (
+                              <div style={{ marginTop: 2 }}>
+                                <Tag color="orange" style={{ fontWeight: 600 }}>
+                                  🔁 Trùng mã trong file (Tự động gộp thành phẩm)
+                                </Tag>
+                              </div>
+                            )}
+                            <div style={{ marginTop: 2, fontWeight: 500 }}>
+                              {r.normalized?.mes_pack_no ||
+                                r.normalized?.specification ||
+                                r.normalized?.name}
+                            </div>
+                            {(r.normalized?.model ||
+                              r.normalized?.finished_goods_code) && (
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: "#64748b",
+                                  marginTop: 3,
+                                  display: "flex",
+                                  gap: 4,
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                {r.normalized?.model && (
+                                  <Tag color="cyan">
+                                    Model: {r.normalized.model}
+                                  </Tag>
+                                )}
+                                {r.normalized?.finished_goods_code && (
+                                  <Tag color="geekblue">
+                                    TP: {r.normalized.finished_goods_code}
+                                  </Tag>
+                                )}
+                              </div>
+                            )}
+                          </>
+                        );
+                      },
                     },
                     {
                       title: "Thao tác",
+                      width: 90,
                       render: (_, r) => (
-                        <Tag>{r.normalized?.action || "—"}</Tag>
+                        <Tag
+                          color={
+                            r.normalized?.action === "MERGE"
+                              ? "orange"
+                              : r.normalized?.action === "UPDATE"
+                                ? "blue"
+                                : "default"
+                          }
+                        >
+                          {r.normalized?.action || "—"}
+                        </Tag>
                       ),
+                    },
+                    {
+                      title: "Xử lý dòng",
+                      width: 120,
+                      render: (_, r) =>
+                        !done && (
+                          <Space size={4}>
+                            {r.status === "SKIPPED" ? (
+                              <Button
+                                size="small"
+                                type="dashed"
+                                onClick={() => toggleSkipRow(r.id)}
+                                loading={rowBusy === r.id}
+                              >
+                                ↩️ Khôi phục
+                              </Button>
+                            ) : (
+                              <Button
+                                size="small"
+                                danger
+                                type="text"
+                                onClick={() => toggleSkipRow(r.id)}
+                                loading={rowBusy === r.id}
+                              >
+                                🗑️ Bỏ qua
+                              </Button>
+                            )}
+                          </Space>
+                        ),
                     },
                     {
                       title: "Giá trị trước / sau",
