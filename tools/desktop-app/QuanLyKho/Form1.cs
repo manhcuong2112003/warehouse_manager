@@ -1,6 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
-using System.Net.Http;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -17,7 +18,9 @@ public partial class Form1 : Form
     private Panel topBar = null!;
     private Label lblCountdown = null!;
     private Button btnActivate = null!;
-    private Button btnServerConfig = null!;
+    private Button btnSettings = null!;
+    private Button btnDismiss = null!;
+    private Button btnFloatingSettings = null!;
     private System.Windows.Forms.Timer countdownTimer = null!;
 
     // Cấu hình thời hạn dùng thử: Hết hạn lúc 23:59:59 ngày 03/11/2026
@@ -34,11 +37,17 @@ public partial class Form1 : Form
     private const string RegValueLicensed = "IsLicensed";
     private const string RegValueLastSeen = "LastSeenTime";
     private const string RegValueServerUrl = "ServerUrl";
+    private const string RegValueStoragePath = "StoragePath";
+    private const string RegValueDarkMode = "IsDarkMode";
+    private const string RegValueTopBarVisible = "TopBarVisible";
 
     public const string DefaultLocalUrl = "https://localhost";
     public const string DefaultTunnelUrl = "https://biological-candy-instruments-installations.trycloudflare.com";
 
     private string currentServerUrl = DefaultLocalUrl;
+    private string currentStoragePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "QuanLyKho_Data");
+    private bool isDarkMode = false;
+    private bool isTopBarVisible = true;
 
     public Form1()
     {
@@ -47,10 +56,21 @@ public partial class Form1 : Form
         this.Size = new Size(1366, 850);
         this.MinimumSize = new Size(1024, 700);
         this.StartPosition = FormStartPosition.CenterScreen;
+        this.KeyPreview = true;
+        this.KeyDown += Form1_KeyDown;
 
         LoadSavedSettings();
         BuildUI();
         StartLicenseAndCountdown();
+    }
+
+    private void Form1_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.F2)
+        {
+            ShowUnifiedSettingsDialog();
+            e.Handled = true;
+        }
     }
 
     private void LoadSavedSettings()
@@ -63,23 +83,31 @@ public partial class Form1 : Form
                 var savedUrl = key.GetValue(RegValueServerUrl) as string;
                 if (!string.IsNullOrWhiteSpace(savedUrl))
                 {
-                    // Tự động sửa nếu trước đó lỡ nhập cổng 3000
-                    if (savedUrl.Contains(":3000"))
-                    {
-                        currentServerUrl = DefaultLocalUrl;
-                    }
-                    else
-                    {
-                        currentServerUrl = savedUrl;
-                    }
+                    if (savedUrl.Contains(":3000")) currentServerUrl = DefaultLocalUrl;
+                    else currentServerUrl = savedUrl;
+                }
+
+                var savedPath = key.GetValue(RegValueStoragePath) as string;
+                if (!string.IsNullOrWhiteSpace(savedPath))
+                {
+                    currentStoragePath = savedPath;
+                }
+
+                var savedDark = key.GetValue(RegValueDarkMode) as string;
+                isDarkMode = savedDark == "1" || savedDark == "TRUE";
+
+                var savedBarVisible = key.GetValue(RegValueTopBarVisible) as string;
+                if (savedBarVisible != null)
+                {
+                    isTopBarVisible = savedBarVisible == "1" || savedBarVisible == "TRUE";
                 }
             }
         }
         catch { }
 
-        if (string.IsNullOrWhiteSpace(currentServerUrl))
+        if (!Directory.Exists(currentStoragePath))
         {
-            currentServerUrl = DefaultLocalUrl;
+            try { Directory.CreateDirectory(currentStoragePath); } catch { }
         }
     }
 
@@ -108,6 +136,17 @@ public partial class Form1 : Form
         catch { }
     }
 
+    private void SaveTopBarVisibility(bool visible)
+    {
+        isTopBarVisible = visible;
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath);
+            key?.SetValue(RegValueTopBarVisible, visible ? "1" : "0", RegistryValueKind.String);
+        }
+        catch { }
+    }
+
     private bool CheckClockRollback()
     {
         try
@@ -120,7 +159,7 @@ public partial class Form1 : Form
             {
                 if (now < lastSeen.AddMinutes(-30))
                 {
-                    return false; // Gian lận lùi giờ máy tính
+                    return false;
                 }
             }
 
@@ -132,29 +171,51 @@ public partial class Form1 : Form
 
     private void BuildUI()
     {
+        // 1. Top Bar
         topBar = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 44,
+            Height = 38,
             BackColor = Color.FromArgb(245, 158, 11),
-            Padding = new Padding(12, 6, 12, 6)
+            Padding = new Padding(12, 4, 8, 4),
+            Visible = isTopBarVisible
         };
 
         lblCountdown = new Label
         {
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft,
-            Font = new Font("Segoe UI", 10.0f, FontStyle.Bold),
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
             ForeColor = Color.FromArgb(69, 26, 3),
             Text = "Đang kiểm tra thời hạn bản quyền..."
+        };
+
+        btnDismiss = new Button
+        {
+            Dock = DockStyle.Right,
+            Width = 32,
+            Text = "✕",
+            Font = new Font("Segoe UI", 11.0f, FontStyle.Bold),
+            BackColor = Color.Transparent,
+            ForeColor = Color.FromArgb(69, 26, 3),
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand,
+            Margin = new Padding(4, 0, 0, 0)
+        };
+        btnDismiss.FlatAppearance.BorderSize = 0;
+        btnDismiss.Click += (s, e) =>
+        {
+            topBar.Visible = false;
+            SaveTopBarVisibility(false);
+            btnFloatingSettings.Visible = true;
         };
 
         btnActivate = new Button
         {
             Dock = DockStyle.Right,
-            Width = 175,
-            Text = "🔑 Nhập Mã Bản Quyền",
-            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+            Width = 150,
+            Text = "🔑 Mã Bản Quyền",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Bold),
             BackColor = Color.White,
             ForeColor = Color.FromArgb(180, 83, 9),
             FlatStyle = FlatStyle.Flat,
@@ -163,34 +224,62 @@ public partial class Form1 : Form
         btnActivate.FlatAppearance.BorderSize = 0;
         btnActivate.Click += (s, e) => ShowActivationDialog();
 
-        btnServerConfig = new Button
+        btnSettings = new Button
         {
             Dock = DockStyle.Right,
-            Width = 145,
-            Text = "⚙️ Đổi Máy Chủ",
-            Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+            Width = 120,
+            Text = "⚙️ Cài Đặt (F2)",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Bold),
             BackColor = Color.FromArgb(254, 243, 199),
             ForeColor = Color.FromArgb(146, 64, 14),
             FlatStyle = FlatStyle.Flat,
             Cursor = Cursors.Hand
         };
-        btnServerConfig.FlatAppearance.BorderSize = 0;
-        btnServerConfig.Click += (s, e) => ShowServerConfigDialog();
+        btnSettings.FlatAppearance.BorderSize = 0;
+        btnSettings.Click += (s, e) => ShowUnifiedSettingsDialog();
 
         topBar.Controls.Add(lblCountdown);
-        topBar.Controls.Add(btnServerConfig);
-        topBar.Controls.Add(new Label { Dock = DockStyle.Right, Width = 8 });
+        topBar.Controls.Add(btnSettings);
+        topBar.Controls.Add(new Label { Dock = DockStyle.Right, Width = 6 });
         topBar.Controls.Add(btnActivate);
+        topBar.Controls.Add(new Label { Dock = DockStyle.Right, Width = 6 });
+        topBar.Controls.Add(btnDismiss);
 
+        // 2. Floating Settings Button (Hiển thị khi topBar bị ẩn)
+        btnFloatingSettings = new Button
+        {
+            Size = new Size(110, 32),
+            Text = "⚙️ Cài đặt (F2)",
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+            BackColor = Color.FromArgb(30, 41, 59),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand,
+            Visible = !isTopBarVisible,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            Location = new Point(this.ClientSize.Width - 125, 8)
+        };
+        btnFloatingSettings.FlatAppearance.BorderSize = 0;
+        btnFloatingSettings.Click += (s, e) => ShowUnifiedSettingsDialog();
+
+        // 3. WebView2
         webView = new WebView2
         {
             Dock = DockStyle.Fill
         };
 
-        // Thứ tự thêm controls rất quan trọng trong WinForms:
+        this.Controls.Add(btnFloatingSettings);
         this.Controls.Add(webView);
         this.Controls.Add(topBar);
+
         topBar.BringToFront();
+        btnFloatingSettings.BringToFront();
+
+        this.Resize += (s, e) =>
+        {
+            btnFloatingSettings.Location = new Point(this.ClientSize.Width - 125, 8);
+            btnFloatingSettings.BringToFront();
+        };
     }
 
     private async void StartLicenseAndCountdown()
@@ -203,24 +292,14 @@ public partial class Form1 : Form
         countdownTimer.Start();
 
         UpdateCountdownDisplay();
-
         await InitializeWebViewAsync();
     }
 
     private bool IsExpiredOrTampered()
     {
         if (IsSystemLicensed()) return false;
-
-        if (!CheckClockRollback())
-        {
-            return true;
-        }
-
-        if (DateTime.Now > ExpiryDate)
-        {
-            return true;
-        }
-
+        if (!CheckClockRollback()) return true;
+        if (DateTime.Now > ExpiryDate) return true;
         return false;
     }
 
@@ -231,19 +310,21 @@ public partial class Form1 : Form
             topBar.BackColor = Color.FromArgb(22, 163, 74);
             lblCountdown.ForeColor = Color.White;
             lblCountdown.Text = "✅ BẢN QUYỀN CHÍNH THỨC (VĨNH VIỄN) - HỆ THỐNG ĐÃ KÍCH HOẠT THÀNH CÔNG";
-            btnActivate.Text = "🔄 Đổi Mã Bản Quyền";
-            btnActivate.ForeColor = Color.FromArgb(22, 163, 74);
+            btnActivate.Visible = false;
+            btnSettings.BackColor = Color.FromArgb(220, 252, 231);
+            btnSettings.ForeColor = Color.FromArgb(21, 128, 61);
+            btnDismiss.ForeColor = Color.White;
             return;
         }
 
-        btnActivate.Text = "🔑 Nhập Mã Bản Quyền";
-        btnActivate.ForeColor = Color.FromArgb(180, 83, 9);
+        btnActivate.Visible = true;
+        btnDismiss.ForeColor = Color.FromArgb(69, 26, 3);
 
         if (!CheckClockRollback())
         {
             topBar.BackColor = Color.FromArgb(220, 38, 38);
             lblCountdown.ForeColor = Color.White;
-            lblCountdown.Text = "⚠️ CẢNH BÁO: Phát hiện ngày giờ hệ thống không hợp lệ! Vui lòng liên hệ nhà phát triển.";
+            lblCountdown.Text = "⚠️ CẢNH BÁO: Phát hiện ngày giờ hệ thống không hợp lệ!";
             ShowExpiredScreen();
             return;
         }
@@ -261,7 +342,7 @@ public partial class Form1 : Form
             topBar.BackColor = Color.FromArgb(245, 158, 11);
             lblCountdown.ForeColor = Color.FromArgb(69, 26, 3);
             string timeStr = $"{(int)remaining.TotalDays} ngày {remaining.Hours:D2} giờ {remaining.Minutes:D2} phút {remaining.Seconds:D2} giây";
-            lblCountdown.Text = $"⏱️ BẢN DÙNG THỬ: Còn lại {timeStr} (Hạn chót: 23:59:59 03/11/2026)";
+            lblCountdown.Text = $"⏱️ DÙNG THỬ: Còn lại {timeStr} (Hạn: 23:59:59 03/11/2026)";
         }
     }
 
@@ -282,9 +363,8 @@ public partial class Form1 : Form
                 "<b>Để mở khóa sử dụng vĩnh viễn:</b><br/>" +
                 "1. Hoàn tất nghiệm thu & thanh toán với nhà phát triển.<br/>" +
                 "2. Nhận <b>Mã kích hoạt bản quyền chính thức</b>.<br/>" +
-                "3. Bấm vào nút <b>[🔑 Nhập Mã Bản Quyền]</b> ở góc trên bên phải để mở khóa ngay lập tức mà không mất dữ liệu." +
+                "3. Bấm vào nút <b>[⚙️ Cài Đặt (F2)]</b> hoặc <b>[🔑 Mã Bản Quyền]</b> để mở khóa ngay lập tức." +
                 "</div>" +
-                "<p style='font-size:14px;color:#94a3b8;'>Hệ thống Local-First - Dữ liệu lưu trữ an toàn tuyệt đối tại máy trạm.</p>" +
                 "</div>" +
                 "</body></html>"
             );
@@ -295,7 +375,6 @@ public partial class Form1 : Form
     {
         try
         {
-            // Bỏ qua lỗi SSL self-signed của Docker Nginx nội bộ máy local
             var options = new CoreWebView2EnvironmentOptions("--ignore-certificate-errors --allow-insecure-localhost");
             var env = await CoreWebView2Environment.CreateAsync(null, null, options);
             await webView.EnsureCoreWebView2Async(env);
@@ -303,15 +382,13 @@ public partial class Form1 : Form
             webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
-            webView.CoreWebView2.Settings.AreDevToolsEnabled = true; // Cho phép F12 nếu cần inspect
+            webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
 
-            // Chấp nhận SSL tự ký mạng LAN
             webView.CoreWebView2.ServerCertificateErrorDetected += (s, e) =>
             {
                 e.Action = CoreWebView2ServerCertificateErrorAction.AlwaysAllow;
             };
 
-            // Tự động cấp quyền Camera khi quét mã Barcode/QR
             webView.CoreWebView2.PermissionRequested += (s, e) =>
             {
                 if (e.PermissionKind == CoreWebView2PermissionKind.Camera)
@@ -320,11 +397,23 @@ public partial class Form1 : Form
                 }
             };
 
+            // Tự động lưu file tải về (Excel, Báo cáo) vào thư mục lưu trữ đã chọn
+            webView.CoreWebView2.DownloadStarting += (s, e) =>
+            {
+                if (!string.IsNullOrEmpty(currentStoragePath) && Directory.Exists(currentStoragePath))
+                {
+                    var fileName = Path.GetFileName(e.ResultFilePath);
+                    e.ResultFilePath = Path.Combine(currentStoragePath, fileName);
+                    e.Handled = true;
+                }
+            };
+
             webView.CoreWebView2.NavigationCompleted += (s, e) =>
             {
+                ApplyThemeToWebView();
+
                 if (!e.IsSuccess && !IsExpiredOrTampered())
                 {
-                    // Nếu kết nối https://localhost thất bại, tự động thử sang tunnel dự phòng
                     if (currentServerUrl == DefaultLocalUrl)
                     {
                         currentServerUrl = DefaultTunnelUrl;
@@ -338,7 +427,7 @@ public partial class Form1 : Form
                         "<div style='max-width:600px;margin:0 auto;background:#fff;padding:40px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.08);'>" +
                         "<h2 style='color:#ea580c;margin-bottom:16px;'>⚠️ Chưa Kết Nối Được Đến Máy Chủ Kho</h2>" +
                         $"<p style='font-size:15px;color:#64748b;line-height:1.6;'>Địa chỉ máy chủ đang kết nối: <code>{currentServerUrl}</code></p>" +
-                        "<p style='font-size:14px;color:#64748b;'>Vui lòng kiểm tra Docker máy chủ đã khởi động hoặc bấm <b>[⚙️ Đổi Máy Chủ]</b> ở góc phải để chuyển đổi giữa Local và Online.</p>" +
+                        "<p style='font-size:14px;color:#64748b;'>Bấm phím <b>F2</b> hoặc nút <b>[⚙️ Cài Đặt]</b> để chuyển đổi giữa Local và Online.</p>" +
                         "</div>" +
                         "</body></html>"
                     );
@@ -358,6 +447,277 @@ public partial class Form1 : Form
         {
             MessageBox.Show("Lỗi khởi tạo hệ thống: " + ex.Message, "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+    private void ApplyThemeToWebView()
+    {
+        if (webView?.CoreWebView2 != null)
+        {
+            try
+            {
+                webView.CoreWebView2.Profile.PreferredColorScheme = isDarkMode
+                    ? CoreWebView2PreferredColorScheme.Dark
+                    : CoreWebView2PreferredColorScheme.Light;
+
+                string script = $"if (window.__toggleTheme) {{ window.__toggleTheme({(isDarkMode ? "true" : "false")}); }} " +
+                                $"localStorage.setItem('wms_dark', '{(isDarkMode ? "true" : "false")}'); " +
+                                $"window.dispatchEvent(new CustomEvent('wms-theme-change', {{ detail: {{ isDark: {(isDarkMode ? "true" : "false")} }} }}));";
+                webView.CoreWebView2.ExecuteScriptAsync(script);
+            }
+            catch { }
+        }
+    }
+
+    public void ShowUnifiedSettingsDialog()
+    {
+        using var form = new Form
+        {
+            Text = "Cài Đặt Hệ Thống WMS",
+            Size = new Size(620, 560),
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            BackColor = Color.White
+        };
+
+        int y = 16;
+
+        // --- 1. Thư mục lưu trữ & Tải file ---
+        var grpStorage = new GroupBox
+        {
+            Text = "📁 1. Thư mục lưu trữ & Xuất file báo cáo",
+            Location = new Point(20, y),
+            Size = new Size(560, 85),
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
+        };
+        var txtStorage = new TextBox
+        {
+            Location = new Point(16, 32),
+            Size = new Size(355, 25),
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+            Text = currentStoragePath
+        };
+        var btnBrowse = new Button
+        {
+            Location = new Point(380, 30),
+            Size = new Size(80, 28),
+            Text = "Chọn...",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+            BackColor = Color.FromArgb(241, 245, 249),
+            FlatStyle = FlatStyle.Flat
+        };
+        btnBrowse.Click += (s, e) =>
+        {
+            using var fbd = new FolderBrowserDialog();
+            fbd.SelectedPath = currentStoragePath;
+            if (fbd.ShowDialog() == DialogResult.OK)
+            {
+                txtStorage.Text = fbd.SelectedPath;
+            }
+        };
+        var btnOpenFolder = new Button
+        {
+            Location = new Point(468, 30),
+            Size = new Size(76, 28),
+            Text = "Mở",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+            BackColor = Color.FromArgb(241, 245, 249),
+            FlatStyle = FlatStyle.Flat
+        };
+        btnOpenFolder.Click += (s, e) =>
+        {
+            if (Directory.Exists(txtStorage.Text))
+            {
+                Process.Start("explorer.exe", txtStorage.Text);
+            }
+        };
+        grpStorage.Controls.Add(txtStorage);
+        grpStorage.Controls.Add(btnBrowse);
+        grpStorage.Controls.Add(btnOpenFolder);
+        form.Controls.Add(grpStorage);
+
+        y += 98;
+
+        // --- 2. Giao diện Sáng / Tối ---
+        var grpTheme = new GroupBox
+        {
+            Text = "🌓 2. Giao diện (Theme)",
+            Location = new Point(20, y),
+            Size = new Size(560, 70),
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
+        };
+        var rbLight = new RadioButton
+        {
+            Location = new Point(20, 28),
+            Size = new Size(220, 24),
+            Text = "☀️ Giao diện Sáng (Light)",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+            Checked = !isDarkMode
+        };
+        var rbDark = new RadioButton
+        {
+            Location = new Point(260, 28),
+            Size = new Size(220, 24),
+            Text = "🌙 Giao diện Tối (Dark Mode)",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+            Checked = isDarkMode
+        };
+        grpTheme.Controls.Add(rbLight);
+        grpTheme.Controls.Add(rbDark);
+        form.Controls.Add(grpTheme);
+
+        y += 82;
+
+        // --- 3. Đăng xuất / Đổi tài khoản ---
+        var grpAccount = new GroupBox
+        {
+            Text = "👤 3. Tài khoản người dùng",
+            Location = new Point(20, y),
+            Size = new Size(560, 70),
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
+        };
+        var btnLogout = new Button
+        {
+            Location = new Point(16, 26),
+            Size = new Size(240, 32),
+            Text = "🚪 Đăng Xuất / Đổi Tài Khoản",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Bold),
+            BackColor = Color.FromArgb(254, 226, 226),
+            ForeColor = Color.FromArgb(185, 28, 28),
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand
+        };
+        btnLogout.FlatAppearance.BorderSize = 0;
+        btnLogout.Click += async (s, e) =>
+        {
+            form.Close();
+            if (webView?.CoreWebView2 != null)
+            {
+                await webView.CoreWebView2.ExecuteScriptAsync(
+                    "fetch('/api/auth/logout', {method: 'POST'}).finally(() => { localStorage.removeItem('csrfToken'); window.location.reload(); });"
+                );
+            }
+        };
+        grpAccount.Controls.Add(btnLogout);
+        form.Controls.Add(grpAccount);
+
+        y += 82;
+
+        // --- 4. Máy chủ kho ---
+        var grpServer = new GroupBox
+        {
+            Text = "🌐 4. Địa chỉ máy chủ kho (LAN / Online)",
+            Location = new Point(20, y),
+            Size = new Size(560, 85),
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
+        };
+        var txtServer = new TextBox
+        {
+            Location = new Point(16, 32),
+            Size = new Size(390, 25),
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+            Text = currentServerUrl
+        };
+        var btnLocalFast = new Button
+        {
+            Location = new Point(415, 30),
+            Size = new Size(65, 28),
+            Text = "Local",
+            Font = new Font("Segoe UI", 8.5f),
+            BackColor = Color.FromArgb(241, 245, 249),
+            FlatStyle = FlatStyle.Flat
+        };
+        btnLocalFast.Click += (s, e) => txtServer.Text = DefaultLocalUrl;
+        var btnTunnelFast = new Button
+        {
+            Location = new Point(485, 30),
+            Size = new Size(60, 28),
+            Text = "Cloud",
+            Font = new Font("Segoe UI", 8.5f),
+            BackColor = Color.FromArgb(241, 245, 249),
+            FlatStyle = FlatStyle.Flat
+        };
+        btnTunnelFast.Click += (s, e) => txtServer.Text = DefaultTunnelUrl;
+
+        grpServer.Controls.Add(txtServer);
+        grpServer.Controls.Add(btnLocalFast);
+        grpServer.Controls.Add(btnTunnelFast);
+        form.Controls.Add(grpServer);
+
+        y += 98;
+
+        // --- 5. Tùy chọn hiển thị & Nút Lưu ---
+        var chkShowTopBar = new CheckBox
+        {
+            Location = new Point(24, y),
+            Size = new Size(320, 24),
+            Text = "Hiển thị thanh trạng thái bản quyền trên cùng",
+            Font = new Font("Segoe UI", 9.0f),
+            Checked = isTopBarVisible
+        };
+        form.Controls.Add(chkShowTopBar);
+
+        var btnSaveAll = new Button
+        {
+            Location = new Point(380, y),
+            Size = new Size(200, 38),
+            Text = "💾 Lưu Tất Cả Cài Đặt",
+            Font = new Font("Segoe UI", 10.0f, FontStyle.Bold),
+            BackColor = Color.FromArgb(37, 99, 235),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand
+        };
+        btnSaveAll.FlatAppearance.BorderSize = 0;
+        btnSaveAll.Click += (s, e) =>
+        {
+            // 1. Lưu thư mục
+            var p = txtStorage.Text.Trim();
+            if (!string.IsNullOrEmpty(p) && Directory.Exists(p))
+            {
+                currentStoragePath = p;
+            }
+
+            // 2. Lưu Theme
+            isDarkMode = rbDark.Checked;
+            ApplyThemeToWebView();
+
+            // 3. Lưu Server
+            var sUrl = txtServer.Text.Trim();
+            bool serverChanged = false;
+            if (!string.IsNullOrEmpty(sUrl) && sUrl != currentServerUrl)
+            {
+                currentServerUrl = sUrl;
+                serverChanged = true;
+            }
+
+            // 4. Lưu Hiển thị TopBar
+            SaveTopBarVisibility(chkShowTopBar.Checked);
+            topBar.Visible = isTopBarVisible;
+            btnFloatingSettings.Visible = !isTopBarVisible;
+
+            // Lưu Registry
+            try
+            {
+                using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath);
+                key?.SetValue(RegValueStoragePath, currentStoragePath);
+                key?.SetValue(RegValueDarkMode, isDarkMode ? "1" : "0");
+                key?.SetValue(RegValueServerUrl, currentServerUrl);
+            }
+            catch { }
+
+            MessageBox.Show("Đã lưu các cài đặt thành công!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            form.Close();
+
+            if (serverChanged && webView.CoreWebView2 != null && !IsExpiredOrTampered())
+            {
+                webView.CoreWebView2.Navigate(currentServerUrl);
+            }
+        };
+        form.Controls.Add(btnSaveAll);
+
+        form.ShowDialog(this);
     }
 
     private void ShowActivationDialog()
@@ -468,111 +828,6 @@ public partial class Form1 : Form
         form.Controls.Add(lblStatus);
         form.Controls.Add(btnSubmit);
         form.Controls.Add(btnResetTrial);
-
-        form.ShowDialog(this);
-    }
-
-    private void ShowServerConfigDialog()
-    {
-        using var form = new Form
-        {
-            Text = "Cài Đặt Máy Chủ Quản Lý Kho",
-            Size = new Size(540, 290),
-            StartPosition = FormStartPosition.CenterParent,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            MaximizeBox = false,
-            MinimizeBox = false,
-            BackColor = Color.White
-        };
-
-        var lblPrompt = new Label
-        {
-            Text = "Chọn hoặc nhập địa chỉ máy chủ kết nối:",
-            Dock = DockStyle.Top,
-            Height = 35,
-            Padding = new Padding(20, 12, 20, 0),
-            Font = new Font("Segoe UI", 10.0f, FontStyle.Bold)
-        };
-
-        var rbLocal = new RadioButton
-        {
-            Location = new Point(24, 45),
-            Size = new Size(470, 25),
-            Text = "Máy chủ Local nội bộ: https://localhost (Docker trên máy này)",
-            Font = new Font("Segoe UI", 9.5f),
-            Checked = currentServerUrl == DefaultLocalUrl
-        };
-
-        var rbTunnel = new RadioButton
-        {
-            Location = new Point(24, 75),
-            Size = new Size(470, 25),
-            Text = "Máy chủ Online Cloudflare Tunnel (Dùng được cho cả điện thoại)",
-            Font = new Font("Segoe UI", 9.5f),
-            Checked = currentServerUrl == DefaultTunnelUrl
-        };
-
-        var rbCustom = new RadioButton
-        {
-            Location = new Point(24, 105),
-            Size = new Size(470, 25),
-            Text = "Tùy chỉnh IP máy trạm LAN khác:",
-            Font = new Font("Segoe UI", 9.5f),
-            Checked = currentServerUrl != DefaultLocalUrl && currentServerUrl != DefaultTunnelUrl
-        };
-
-        var txtCustom = new TextBox
-        {
-            Location = new Point(44, 135),
-            Width = 450,
-            Font = new Font("Segoe UI", 10.0f),
-            Text = currentServerUrl
-        };
-
-        rbLocal.CheckedChanged += (s, e) => { if (rbLocal.Checked) txtCustom.Text = DefaultLocalUrl; };
-        rbTunnel.CheckedChanged += (s, e) => { if (rbTunnel.Checked) txtCustom.Text = DefaultTunnelUrl; };
-
-        var btnSave = new Button
-        {
-            Text = "Lưu & Kết Nối Lại",
-            Location = new Point(170, 190),
-            Size = new Size(180, 42),
-            BackColor = Color.FromArgb(16, 185, 129),
-            ForeColor = Color.White,
-            Font = new Font("Segoe UI", 10.0f, FontStyle.Bold),
-            FlatStyle = FlatStyle.Flat,
-            Cursor = Cursors.Hand
-        };
-        btnSave.FlatAppearance.BorderSize = 0;
-
-        btnSave.Click += (s, e) =>
-        {
-            var newUrl = txtCustom.Text.Trim();
-            if (!string.IsNullOrEmpty(newUrl))
-            {
-                currentServerUrl = newUrl;
-                try
-                {
-                    using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath);
-                    key?.SetValue(RegValueServerUrl, currentServerUrl);
-                }
-                catch { }
-
-                MessageBox.Show("Đã lưu địa chỉ máy chủ thành công!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                form.Close();
-                if (webView.CoreWebView2 != null && !IsExpiredOrTampered())
-                {
-                    webView.CoreWebView2.Navigate(currentServerUrl);
-                }
-            }
-        };
-
-        form.Controls.Add(lblPrompt);
-        form.Controls.Add(rbLocal);
-        form.Controls.Add(rbTunnel);
-        form.Controls.Add(rbCustom);
-        form.Controls.Add(txtCustom);
-        form.Controls.Add(btnSave);
 
         form.ShowDialog(this);
     }

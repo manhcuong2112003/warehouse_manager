@@ -20,6 +20,8 @@ import {
   AppstoreOutlined,
   LogoutOutlined,
   ExportOutlined,
+  SunOutlined,
+  MoonOutlined,
 } from "@ant-design/icons";
 import { api, post, setCsrf } from "./api";
 import { Dashboard, Inventory, Catalog, Outbound } from "./pages/operations";
@@ -193,14 +195,29 @@ export function WmsApp() {
             </Tag>
             <span className="user-name">{user.display_name}</span>
             <Button
+              icon={localStorage.getItem("wms_dark") === "true" ? <SunOutlined /> : <MoonOutlined />}
+              title="Đổi giao diện Sáng / Tối"
+              onClick={() => {
+                const next = localStorage.getItem("wms_dark") !== "true";
+                if ((window as any).__toggleTheme) {
+                  (window as any).__toggleTheme(next);
+                } else {
+                  localStorage.setItem("wms_dark", String(next));
+                  window.dispatchEvent(new CustomEvent("wms-theme-change", { detail: { isDark: next } }));
+                }
+              }}
+            />
+            <Button
               icon={<LogoutOutlined />}
-              aria-label="Đăng xuất"
+              danger
               onClick={async () => {
                 await post("/auth/logout");
                 setUser(undefined);
                 setCsrf("");
               }}
-            />
+            >
+              Đăng xuất
+            </Button>
           </Space>
         </Layout.Header>
         <Layout.Content className="main-content">
