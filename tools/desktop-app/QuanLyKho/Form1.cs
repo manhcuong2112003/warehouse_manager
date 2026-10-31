@@ -59,6 +59,8 @@ public partial class Form1 : Form
         this.KeyPreview = true;
         this.KeyDown += Form1_KeyDown;
 
+        EnsureDesktopShortcut(false);
+
         LoadSavedSettings();
         BuildUI();
         StartLicenseAndCountdown();
@@ -599,7 +601,27 @@ public partial class Form1 : Form
                 );
             }
         };
+
+        var btnCreateShortcut = new Button
+        {
+            Location = new Point(275, 26),
+            Size = new Size(270, 32),
+            Text = "🖥️ Tạo Icon Vào Nhanh Trên Desktop",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Bold),
+            BackColor = Color.FromArgb(241, 245, 249),
+            ForeColor = Color.FromArgb(15, 23, 42),
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand
+        };
+        btnCreateShortcut.FlatAppearance.BorderSize = 0;
+        btnCreateShortcut.Click += (s, e) =>
+        {
+            EnsureDesktopShortcut(true);
+            MessageBox.Show("Đã tạo biểu tượng 'Quản Lý Kho WMS' trên màn hình Desktop của bạn thành công!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        };
+
         grpAccount.Controls.Add(btnLogout);
+        grpAccount.Controls.Add(btnCreateShortcut);
         form.Controls.Add(grpAccount);
 
         y += 82;
@@ -855,5 +877,33 @@ public partial class Form1 : Form
         }
 
         return false;
+    }
+
+    public static void EnsureDesktopShortcut(bool force = false)
+    {
+        try
+        {
+            string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            string shortcutPath = Path.Combine(desktopPath, "Quan Ly Kho WMS.lnk");
+            string? exePath = Environment.ProcessPath ?? Application.ExecutablePath;
+
+            if (string.IsNullOrEmpty(exePath) || !File.Exists(exePath)) return;
+
+            if (!File.Exists(shortcutPath) || force)
+            {
+                Type? shellType = Type.GetTypeFromProgID("WScript.Shell");
+                if (shellType != null)
+                {
+                    dynamic shell = Activator.CreateInstance(shellType)!;
+                    dynamic shortcut = shell.CreateShortcut(shortcutPath);
+                    shortcut.TargetPath = exePath;
+                    shortcut.WorkingDirectory = Path.GetDirectoryName(exePath);
+                    shortcut.Description = "Hệ thống Quản Lý Kho (WMS) - Local-First Edition";
+                    shortcut.IconLocation = exePath + ",0";
+                    shortcut.Save();
+                }
+            }
+        }
+        catch { }
     }
 }
