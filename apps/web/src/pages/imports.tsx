@@ -61,34 +61,137 @@ export function Imports({ warehouse, user }: PageProps) {
     refreshJobs();
     api("/imports/profiles").then(setProfiles);
   }, []);
+
+  const getSmartMapping = (fieldsList: string[], headerCells: any[]) => {
+    const map: Record<string, number> = {};
+    const normHeaders = (headerCells || []).map((c: any, i: number) => ({
+      index: i,
+      raw: String(c?.value || ""),
+      text: String(c?.value || "").toLowerCase().replace(/\r?\n/g, " ").trim(),
+    }));
+
+    for (const f of fieldsList) {
+      if (f === "part_no") {
+        const found =
+          normHeaders.find(
+            (h) =>
+              (h.text.includes("품번") || h.text.includes("part") || h.text.includes("mã")) &&
+              !h.text.includes("thành phẩm") &&
+              !h.text.includes("완제품") &&
+              !h.text.includes("stt"),
+          ) ||
+          normHeaders.find(
+            (h) => h.text.startsWith("code") && !h.text.includes("thành phẩm"),
+          );
+        if (found) map[f] = found.index;
+      } else if (f === "specification") {
+        const found = normHeaders.find(
+          (h) =>
+            h.text.includes("tên vật liệu") ||
+            h.text.includes("자재명") ||
+            h.text.includes("quy cách") ||
+            h.text.includes("tên") ||
+            h.text.includes("spec") ||
+            h.text.includes("desc"),
+        );
+        if (found) map[f] = found.index;
+      } else if (f === "vendor_code") {
+        const found = normHeaders.find(
+          (h) =>
+            (h.text.includes("vendor") ||
+              h.text.includes("nhà cung cấp") ||
+              h.text.includes("ncc") ||
+              h.text.includes("업체")) &&
+            !h.text.includes("stt"),
+        );
+        if (found) map[f] = found.index;
+      } else if (f === "base_uom") {
+        const found = normHeaders.find(
+          (h) =>
+            h.text.includes("đơn vị") ||
+            h.text.includes("uom") ||
+            h.text.includes("đvt") ||
+            h.text.includes("단위"),
+        );
+        if (found) map[f] = found.index;
+      } else if (f === "lot_no") {
+        const found = normHeaders.find(
+          (h) => h.text.includes("lot") || h.text.includes("lô"),
+        );
+        if (found) map[f] = found.index;
+      } else if (f === "mes_pack_no") {
+        const found = normHeaders.find(
+          (h) =>
+            h.text.includes("pack") ||
+            h.text.includes("cuộn") ||
+            h.text.includes("thùng"),
+        );
+        if (found) map[f] = found.index;
+      } else if (f === "quantity") {
+        const found = normHeaders.find(
+          (h) =>
+            h.text.includes("tồn") ||
+            h.text.includes("số lượng") ||
+            h.text.includes("qty") ||
+            h.text.includes("수량"),
+        );
+        if (found) map[f] = found.index;
+      } else if (f === "expired_date") {
+        const found = normHeaders.find(
+          (h) =>
+            h.text.includes("hạn") ||
+            h.text.includes("exp") ||
+            h.text.includes("expiry"),
+        );
+        if (found) map[f] = found.index;
+      }
+    }
+    return map;
+  };
+
+  const findSmartHeaderRow = (rows: any[][]) => {
+    for (let r = 0; r < Math.min(5, (rows || []).length); r++) {
+      const texts = (rows[r] || []).map((c: any) =>
+        String(c?.value || "").toLowerCase().replace(/\r?\n/g, " ").trim(),
+      );
+      if (
+        texts.some(
+          (t) =>
+            t.includes("stt") ||
+            t.includes("code") ||
+            t.includes("part") ||
+            t.includes("tên") ||
+            t.includes("품번") ||
+            t.includes("자재명"),
+        )
+      ) {
+        return r + 1;
+      }
+    }
+    return 1;
+  };
+
   const adopt = (j: any) => {
     setJob(j);
     setKind(j.kind);
-    setOptions(
-      j.options?.sheet
-        ? j.options
-        : {
-            sheet: j.sheets[0]?.name,
-            headerRow: 1,
-            dateFormat: "ISO",
-            thousands: "",
-          },
-    );
-    if (j.mapping) setMapping(j.mapping);
-    else {
-      const headers =
-        j.sheets[0]?.preview[0]?.map((v: any) =>
-          String(v.value || "")
-            .toLowerCase()
-            .trim(),
-        ) || [];
-      setMapping(
-        Object.fromEntries(
-          j.fields
-            .filter((f: string) => headers.includes(f))
-            .map((f: string) => [f, headers.indexOf(f)]),
-        ),
-      );
+    const firstSheet = j.sheets[0];
+    const detectedHeaderRow = findSmartHeaderRow(firstSheet?.preview || []);
+    const initialOptions = j.options?.sheet
+      ? j.options
+      : {
+          sheet: firstSheet?.name,
+          headerRow: detectedHeaderRow,
+          dateFormat: "ISO",
+          thousands: "",
+        };
+    setOptions(initialOptions);
+
+    if (j.mapping && Object.keys(j.mapping).length > 0) {
+      setMapping(j.mapping);
+    } else {
+      const curHeaders = firstSheet?.preview[initialOptions.headerRow - 1] || [];
+      const autoMap = getSmartMapping(j.fields, curHeaders);
+      setMapping(autoMap);
     }
     confirmKey.current = crypto.randomUUID();
     setAck(false);
@@ -270,9 +373,13 @@ export function Imports({ warehouse, user }: PageProps) {
                       min={1}
                       max={20}
                       value={options.headerRow}
-                      onChange={(headerRow) =>
-                        setOptions({ ...options, headerRow: headerRow || 1 })
-                      }
+                      onChange={(headerRow) => {
+                        const hr = headerRow || 1;
+                        const curHeaders = sheet?.preview[hr - 1] || [];
+                        const autoMap = getSmartMapping(job.fields, curHeaders);
+                        setOptions({ ...options, headerRow: hr });
+                        setMapping(autoMap);
+                      }}
                     />
                   </label>
                   <label>
@@ -321,6 +428,20 @@ export function Imports({ warehouse, user }: PageProps) {
                     />
                   </label>
                 </div>
+                <Alert
+                  type="info"
+                  showIcon
+                  message="💡 Hướng dẫn ghép cột chính xác:"
+                  description={
+                    <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+                      <div><b>1. Hàng tiêu đề:</b> Với file Báo Cáo Tồn, hãy đặt <b>Hàng tiêu đề: 2</b> (để bỏ qua dòng tiêu đề lớn ở hàng 1).</div>
+                      <div><b>2. part_no (Mã sản phẩm):</b> Hãy chọn <b>Cột 5 (Code / 품번)</b> ví dụ <code>GH64-10383A-LA</code>. Tuyệt đối <b>không chọn Cột 1 (STT / Số thứ tự)</b>.</div>
+                      <div><b>3. specification (Quy cách):</b> Chọn <b>Cột 4 (Tên vật liệu / 자재명)</b> ví dụ <code>DECO RATION CAM LOWER</code>.</div>
+                      <div><b>4. vendor_code (Nhà cung cấp):</b> Nếu file không có cột nhà cung cấp, hãy bấm dấu <b>✕ để bỏ trống</b>.</div>
+                    </div>
+                  }
+                  style={{ marginBottom: 16 }}
+                />
                 <div className="mapping-grid">
                   {job.fields.map((field: string) => (
                     <label key={field}>
