@@ -81,14 +81,14 @@ export class ReportService {
       return {
         text: `WITH bounds AS (SELECT GREATEST($2::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh',COALESCE(cutover_at,'-infinity'::timestamptz)) AS start,
           $3::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh' AS finish FROM warehouses WHERE id=$1),
-        totals AS (SELECT p.part_no,p.specification,p.base_uom,
+        totals AS (SELECT p.part_no,p.specification,p.base_uom,p.model,p.finished_goods_code,
           COALESCE(sum(m.quantity_delta) FILTER(WHERE m.effective_at<b.start OR (m.movement_type='OPENING_BALANCE' AND m.effective_at=b.start)),0) AS opening,
           COALESCE(sum(m.quantity_delta) FILTER(WHERE m.effective_at>=b.start AND m.movement_type='INBOUND'),0) AS inbound,
           COALESCE(sum(-m.quantity_delta) FILTER(WHERE m.effective_at>=b.start AND m.movement_type='OUTBOUND'),0) AS outbound,
           COALESCE(sum(m.quantity_delta) FILTER(WHERE m.effective_at>=b.start AND m.movement_type IN ('ADJUSTMENT','TRANSFER')),0) AS adjustment,
           sum(m.quantity_delta) AS closing
         FROM stock_movements m JOIN products p ON p.id=m.product_id JOIN locations l ON l.id=m.location_id CROSS JOIN bounds b
-        WHERE l.warehouse_id=$1 AND m.effective_at<b.finish GROUP BY p.id)
+        WHERE l.warehouse_id=$1 AND m.effective_at<b.finish GROUP BY p.id,p.part_no,p.specification,p.base_uom,p.model,p.finished_goods_code)
         SELECT * FROM totals ORDER BY part_no`,
         values: [warehouse, from, to],
       };
@@ -102,7 +102,7 @@ export class ReportService {
         422,
       );
       return {
-        text: `SELECT m.id,m.effective_at,m.created_at,p.part_no,p.specification,p.base_uom,b.lot_no,b.mes_pack_no,l.code AS location,
+        text: `SELECT m.id,m.effective_at,m.created_at,p.part_no,p.specification,p.base_uom,p.model,p.finished_goods_code,b.lot_no,b.mes_pack_no,l.code AS location,
           m.quantity_delta,m.balance_after,m.movement_type,m.reference_type,m.reference_id,u.display_name AS actor,r.import_job_id
         FROM stock_movements m JOIN stock_pack_balances b ON b.id=m.pack_balance_id JOIN products p ON p.id=m.product_id
         JOIN locations l ON l.id=m.location_id JOIN users u ON u.id=m.actor_id LEFT JOIN inbound_receipts r ON r.id=m.reference_id AND m.reference_type='INBOUND_RECEIPT'
@@ -111,7 +111,7 @@ export class ReportService {
       };
     }
     return {
-      text: `SELECT b.id,p.part_no,p.specification,p.base_uom,b.lot_no,b.mes_pack_no,b.vendor_code,l.code AS location,b.on_hand,b.reserved,
+      text: `SELECT b.id,p.part_no,p.specification,p.base_uom,p.model,p.finished_goods_code,b.lot_no,b.mes_pack_no,b.vendor_code,l.code AS location,b.on_hand,b.reserved,
         CASE WHEN b.status='AVAILABLE' AND b.expired_date>(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date THEN b.on_hand-b.reserved ELSE 0 END AS available,
         b.expired_date::text AS expired_date,b.expired_date-(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS days_left,
         CASE WHEN b.expired_date<=(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date THEN 'HẾT HẠN'

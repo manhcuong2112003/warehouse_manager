@@ -26,7 +26,14 @@ export const importKinds = [
   "INBOUND",
 ] as const;
 export const fields: Record<string, string[]> = {
-  PRODUCTS: ["part_no", "specification", "base_uom", "vendor_code"],
+  PRODUCTS: [
+    "part_no",
+    "specification",
+    "model",
+    "finished_goods_code",
+    "base_uom",
+    "vendor_code",
+  ],
   VENDORS: ["code", "name"],
   LOCATIONS: ["code", "name"],
   OPENING_BALANCE: [
@@ -751,22 +758,26 @@ export class ImportService {
                 );
               if (row.expected_version === null)
                 r = await c.query(
-                  "INSERT INTO products(part_no,specification,base_uom,default_vendor_code) VALUES($1,$2,$3,$4) RETURNING id",
+                  "INSERT INTO products(part_no,specification,base_uom,default_vendor_code,model,finished_goods_code) VALUES($1,$2,$3,$4,$5,$6) RETURNING id",
                   [
                     n.part_no,
                     n.specification,
                     n.base_uom,
                     n.vendor_code || null,
+                    n.model || null,
+                    n.finished_goods_code || null,
                   ],
                 );
               else
                 r = await c.query(
-                  "UPDATE products SET specification=$2,base_uom=$3,default_vendor_code=$4,version=version+1 WHERE part_no=$1 AND version=$5 RETURNING id",
+                  "UPDATE products SET specification=$2,base_uom=$3,default_vendor_code=$4,model=COALESCE($5,model),finished_goods_code=COALESCE($6,finished_goods_code),version=version+1 WHERE part_no=$1 AND version=$7 RETURNING id",
                   [
                     n.part_no,
                     n.specification,
                     n.base_uom,
                     n.vendor_code || null,
+                    n.model || null,
+                    n.finished_goods_code || null,
                     row.expected_version,
                   ],
                 );

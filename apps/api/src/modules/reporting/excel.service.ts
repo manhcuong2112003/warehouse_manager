@@ -16,8 +16,10 @@ type Column = {
   total?: boolean;
 };
 const common: Column[] = [
-  { key: "part_no", header: "PART NO", width: 24 },
-  { key: "specification", header: "TÊN / QUY CÁCH", width: 36 },
+  { key: "model", header: "MODEL SỬ DỤNG", width: 22 },
+  { key: "finished_goods_code", header: "CODE THÀNH PHẨM", width: 25 },
+  { key: "specification", header: "TÊN VẬT LIỆU", width: 36 },
+  { key: "part_no", header: "CODE LINH KIỆN", width: 24 },
   { key: "base_uom", header: "ĐVT", width: 10 },
 ];
 const columns: Record<string, Column[]> = {

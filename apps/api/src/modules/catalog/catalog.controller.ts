@@ -72,7 +72,7 @@ export class CatalogController {
       await this.db.pool.query(
         `SELECT * FROM products WHERE $1='' OR part_no=$1 OR
       (length($1)<3 AND part_no ILIKE $2||'%') OR
-      (length($1)>=3 AND (part_no ILIKE '%'||$2||'%' OR specification ILIKE '%'||$2||'%'))
+      (length($1)>=3 AND (part_no ILIKE '%'||$2||'%' OR specification ILIKE '%'||$2||'%' OR model ILIKE '%'||$2||'%' OR finished_goods_code ILIKE '%'||$2||'%'))
       ORDER BY (part_no=$1) DESC,part_no LIMIT 100`,
         [q, pattern],
       )
@@ -85,13 +85,15 @@ export class CatalogController {
         specification: text,
         baseUom: text.default("PCS"),
         vendorCode: text.nullish(),
+        model: text.nullish(),
+        finishedGoodsCode: text.nullish(),
       }),
       body,
     );
     return (
       await this.db.pool.query(
-        "INSERT INTO products(part_no,specification,base_uom,default_vendor_code) VALUES($1,$2,$3,$4) RETURNING *",
-        [b.partNo, b.specification, b.baseUom, b.vendorCode || null],
+        "INSERT INTO products(part_no,specification,base_uom,default_vendor_code,model,finished_goods_code) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
+        [b.partNo, b.specification, b.baseUom, b.vendorCode || null, b.model || null, b.finishedGoodsCode || null],
       )
     ).rows[0];
   }
@@ -102,13 +104,15 @@ export class CatalogController {
     const b = validate(
       z.object({
         specification: text,
+        model: text.nullish(),
+        finishedGoodsCode: text.nullish(),
         version: z.number().int().nonnegative(),
       }),
       body,
     );
     const r = await this.db.pool.query(
-      "UPDATE products SET specification=$2,version=version+1 WHERE id=$1 AND version=$3 RETURNING *",
-      [validate(uuid, id), b.specification, b.version],
+      "UPDATE products SET specification=$2,model=COALESCE($3,model),finished_goods_code=COALESCE($4,finished_goods_code),version=version+1 WHERE id=$1 AND version=$5 RETURNING *",
+      [validate(uuid, id), b.specification, b.model || null, b.finishedGoodsCode || null, b.version],
     );
     ensure(
       r.rowCount,

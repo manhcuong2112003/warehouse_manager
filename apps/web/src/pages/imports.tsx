@@ -95,6 +95,23 @@ export function Imports({ warehouse, user }: PageProps) {
             h.text.includes("desc"),
         );
         if (found) map[f] = found.index;
+      } else if (f === "model") {
+        const found = normHeaders.find(
+          (h) =>
+            h.text.includes("model") ||
+            h.text.includes("mẫu") ||
+            h.text.includes("모델"),
+        );
+        if (found) map[f] = found.index;
+      } else if (f === "finished_goods_code") {
+        const found = normHeaders.find(
+          (h) =>
+            (h.text.includes("thành phẩm") ||
+              h.text.includes("완제품") ||
+              h.text.includes("fg")) &&
+            !h.text.includes("stt"),
+        );
+        if (found) map[f] = found.index;
       } else if (f === "vendor_code") {
         const found = normHeaders.find(
           (h) =>
@@ -431,13 +448,15 @@ export function Imports({ warehouse, user }: PageProps) {
                 <Alert
                   type="info"
                   showIcon
-                  message="💡 Hướng dẫn ghép cột chính xác:"
+                  message="💡 Hướng dẫn ghép cột file Báo Cáo Tồn:"
                   description={
                     <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-                      <div><b>1. Hàng tiêu đề:</b> Với file Báo Cáo Tồn, hãy đặt <b>Hàng tiêu đề: 2</b> (để bỏ qua dòng tiêu đề lớn ở hàng 1).</div>
-                      <div><b>2. part_no (Mã sản phẩm):</b> Hãy chọn <b>Cột 5 (Code / 품번)</b> ví dụ <code>GH64-10383A-LA</code>. Tuyệt đối <b>không chọn Cột 1 (STT / Số thứ tự)</b>.</div>
-                      <div><b>3. specification (Quy cách):</b> Chọn <b>Cột 4 (Tên vật liệu / 자재명)</b> ví dụ <code>DECO RATION CAM LOWER</code>.</div>
-                      <div><b>4. vendor_code (Nhà cung cấp):</b> Nếu file không có cột nhà cung cấp, hãy bấm dấu <b>✕ để bỏ trống</b>.</div>
+                      <div><b>1. Hàng tiêu đề:</b> Hãy đặt là <b>2</b> (để nhận đúng các cột từ hàng 2 của file Excel).</div>
+                      <div><b>2. part_no (Mã linh kiện):</b> Chọn <b>Cột 5 (Code / 품번)</b> ví dụ <code>GH64-10383A-LA</code>. Tuyệt đối không chọn Cột 1 STT.</div>
+                      <div><b>3. specification (Tên vật liệu):</b> Chọn <b>Cột 4 (Tên vật liệu / 자재명)</b> ví dụ <code>DECO RATION CAM LOWER</code>.</div>
+                      <div><b>4. model (Model sử dụng):</b> Chọn <b>Cột 2 (Model sử dụng / 사용 모델)</b> ví dụ <code>SM-S741U (R14)</code>.</div>
+                      <div><b>5. finished_goods_code (Code thành phẩm):</b> Chọn <b>Cột 3 (Code thành phẩm 완제품 품번)</b> ví dụ <code>GH98-51260A</code>.</div>
+                      <div><b>6. vendor_code / base_uom:</b> Nếu file không có, bấm dấu <b>✕ để bỏ trống</b>.</div>
                     </div>
                   }
                   style={{ marginBottom: 16 }}

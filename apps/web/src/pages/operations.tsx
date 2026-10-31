@@ -345,14 +345,21 @@ export function Inventory({ warehouse, user }: PageProps) {
         }}
         columns={[
           {
-            title: "PART NO / Quy cách",
+            title: "Code / Quy cách",
             dataIndex: "part_no",
             fixed: "left",
-            width: 250,
+            width: 260,
             render: (v, r) => (
               <>
                 <b className="code">{v}</b>
-                <div className="muted">{r.specification}</div>
+                <div>{r.specification}</div>
+                {(r.model || r.finished_goods_code) && (
+                  <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                    {r.model ? `Model: ${r.model}` : ""}
+                    {r.model && r.finished_goods_code ? " · " : ""}
+                    {r.finished_goods_code ? `TP: ${r.finished_goods_code}` : ""}
+                  </div>
+                )}
               </>
             ),
           },
@@ -562,13 +569,15 @@ export function Catalog({ warehouse, user }: PageProps) {
           tab === "products"
             ? [
                 {
-                  title: "Part No",
+                  title: "Code linh kiện (Part No)",
                   dataIndex: "part_no",
                   render: (v) => <b className="code">{v}</b>,
                 },
-                { title: "Tên / quy cách", dataIndex: "specification" },
-                { title: "Đơn vị cơ sở", dataIndex: "base_uom" },
-                { title: "NCC mặc định", dataIndex: "default_vendor_code" },
+                { title: "Tên vật liệu (Quy cách)", dataIndex: "specification" },
+                { title: "Model sử dụng", dataIndex: "model", render: (v) => v || "—" },
+                { title: "Code thành phẩm", dataIndex: "finished_goods_code", render: (v) => v || "—" },
+                { title: "ĐVT", dataIndex: "base_uom" },
+                { title: "NCC mặc định", dataIndex: "default_vendor_code", render: (v) => v || "—" },
               ]
             : [
                 {
@@ -608,21 +617,33 @@ export function Catalog({ warehouse, user }: PageProps) {
           {tab === "products" ? (
             <>
               <Form.Item
-                label="Part No"
+                label="Code linh kiện (Part No)"
                 name="partNo"
                 rules={[{ required: true }]}
               >
-                <Input />
+                <Input placeholder="Ví dụ: GH64-10383A-LA" />
               </Form.Item>
               <Form.Item
-                label="Tên / quy cách"
+                label="Tên vật liệu (Quy cách)"
                 name="specification"
                 rules={[{ required: true }]}
               >
-                <Input />
+                <Input placeholder="Ví dụ: DECO RATION CAM LOWER" />
               </Form.Item>
               <Form.Item
-                label="Đơn vị cơ sở"
+                label="Model sử dụng"
+                name="model"
+              >
+                <Input placeholder="Ví dụ: SM-S741U (R14)" />
+              </Form.Item>
+              <Form.Item
+                label="Code thành phẩm"
+                name="finishedGoodsCode"
+              >
+                <Input placeholder="Ví dụ: GH98-51260A" />
+              </Form.Item>
+              <Form.Item
+                label="Đơn vị tính"
                 name="baseUom"
                 initialValue="PCS"
                 rules={[{ required: true }]}
@@ -630,7 +651,7 @@ export function Catalog({ warehouse, user }: PageProps) {
                 <Input />
               </Form.Item>
               <Form.Item label="Mã NCC mặc định" name="vendorCode">
-                <Input />
+                <Input placeholder="Ví dụ: DQUU" />
               </Form.Item>
             </>
           ) : (

@@ -63,13 +63,13 @@ export class InventoryController {
     const limit = Math.min(Math.max(Number(q.limit) || 50, 1), 200),
       offset = Math.max(Number(q.offset) || 0, 0);
     const result = await this.db.pool.query(
-      `SELECT b.*,b.expired_date::text AS expiry,p.part_no,p.specification,p.base_uom,l.code AS location_code,
+      `SELECT b.*,b.expired_date::text AS expiry,p.part_no,p.specification,p.base_uom,p.model,p.finished_goods_code,l.code AS location_code,
        (b.expired_date-(clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date) AS days_left,
        CASE WHEN b.status='AVAILABLE' AND b.expired_date>(clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date THEN b.on_hand-b.reserved ELSE 0 END AS available,
        count(*) OVER() AS total_count
       FROM stock_pack_balances b JOIN products p ON p.id=b.product_id JOIN locations l ON l.id=b.location_id
       WHERE l.warehouse_id=$1 AND ($2='' OR ($6::uuid IS NOT NULL AND b.id=$6) OR ($7::uuid IS NOT NULL AND b.product_id=$7)
-        OR ($6::uuid IS NULL AND $7::uuid IS NULL AND (p.part_no ILIKE '%'||$2||'%' OR p.specification ILIKE '%'||$2||'%' OR b.lot_no ILIKE '%'||$2||'%' OR b.mes_pack_no ILIKE '%'||$2||'%' OR b.vendor_code ILIKE '%'||$2||'%')))
+        OR ($6::uuid IS NULL AND $7::uuid IS NULL AND (p.part_no ILIKE '%'||$2||'%' OR p.specification ILIKE '%'||$2||'%' OR p.model ILIKE '%'||$2||'%' OR p.finished_goods_code ILIKE '%'||$2||'%' OR b.lot_no ILIKE '%'||$2||'%' OR b.mes_pack_no ILIKE '%'||$2||'%' OR b.vendor_code ILIKE '%'||$2||'%')))
       AND ($3='' OR ($3='expiring' AND b.on_hand>0 AND b.expired_date>(clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AND b.expired_date<=(clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date+30)
         OR ($3='expired' AND b.on_hand>0 AND b.expired_date<=(clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date) OR ($3='empty' AND b.on_hand=0)
         OR ($3='today' AND (b.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date=(clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date))
