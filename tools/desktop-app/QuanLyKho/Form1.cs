@@ -1,7 +1,9 @@
 using System;
 using System.Drawing;
+using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32;
 using Microsoft.Web.WebView2.Core;
@@ -21,10 +23,6 @@ public partial class Form1 : Form
     // Cấu hình thời hạn dùng thử: Hết hạn lúc 23:59:59 ngày 03/11/2026
     private static readonly DateTime ExpiryDate = new DateTime(2026, 11, 3, 23, 59, 59);
 
-    // Thuật toán kiểm tra License Key Offline:
-    // Các Key hợp lệ được chấp nhận:
-    // 1. Key cố định cấp nhanh: WMS-PRO-2026-OFFICIAL hoặc WMS-2026-VIP-LICENSE
-    // 2. Hoặc bất kỳ Key nào có tiền tố WMS-PRO- kết thúc bằng checksum hợp lệ
     private static readonly string[] ValidMasterKeys = new string[]
     {
         "WMS-PRO-2026-OFFICIAL",
@@ -37,8 +35,10 @@ public partial class Form1 : Form
     private const string RegValueLastSeen = "LastSeenTime";
     private const string RegValueServerUrl = "ServerUrl";
 
-    // URL mặc định (có thể là local http://localhost:3000 hoặc LAN IP hoặc tunnel)
-    private string currentServerUrl = "https://localhost";
+    public const string DefaultLocalUrl = "https://localhost";
+    public const string DefaultTunnelUrl = "https://biological-candy-instruments-installations.trycloudflare.com";
+
+    private string currentServerUrl = DefaultLocalUrl;
 
     public Form1()
     {
@@ -63,16 +63,23 @@ public partial class Form1 : Form
                 var savedUrl = key.GetValue(RegValueServerUrl) as string;
                 if (!string.IsNullOrWhiteSpace(savedUrl))
                 {
-                    currentServerUrl = savedUrl;
+                    // Tự động sửa nếu trước đó lỡ nhập cổng 3000
+                    if (savedUrl.Contains(":3000"))
+                    {
+                        currentServerUrl = DefaultLocalUrl;
+                    }
+                    else
+                    {
+                        currentServerUrl = savedUrl;
+                    }
                 }
             }
         }
         catch { }
 
-        // Nếu chưa cấu hình, fallback sang URL mặc định đã dựng
-        if (string.IsNullOrWhiteSpace(currentServerUrl) || currentServerUrl == "https://localhost")
+        if (string.IsNullOrWhiteSpace(currentServerUrl))
         {
-            currentServerUrl = "https://biological-candy-instruments-installations.trycloudflare.com";
+            currentServerUrl = DefaultLocalUrl;
         }
     }
 
@@ -91,12 +98,12 @@ public partial class Form1 : Form
         return false;
     }
 
-    private void SaveLicensedStatus()
+    private void SaveLicensedStatus(bool isLicensed)
     {
         try
         {
             using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath);
-            key?.SetValue(RegValueLicensed, "1", RegistryValueKind.String);
+            key?.SetValue(RegValueLicensed, isLicensed ? "1" : "0", RegistryValueKind.String);
         }
         catch { }
     }
@@ -111,10 +118,9 @@ public partial class Form1 : Form
 
             if (!string.IsNullOrEmpty(lastStr) && DateTime.TryParse(lastStr, out var lastSeen))
             {
-                // Nếu giờ máy tính bị lùi hơn 30 phút so với lần chạy trước -> phát hiện gian lận
                 if (now < lastSeen.AddMinutes(-30))
                 {
-                    return false; // Gian lận giờ
+                    return false; // Gian lận lùi giờ máy tính
                 }
             }
 
@@ -126,12 +132,11 @@ public partial class Form1 : Form
 
     private void BuildUI()
     {
-        // 1. Thanh trạng thái phía trên (TopBar)
         topBar = new Panel
         {
             Dock = DockStyle.Top,
             Height = 44,
-            BackColor = Color.FromArgb(245, 158, 11), // Vàng cam ấm áp cho trial
+            BackColor = Color.FromArgb(245, 158, 11),
             Padding = new Padding(12, 6, 12, 6)
         };
 
@@ -139,7 +144,7 @@ public partial class Form1 : Form
         {
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft,
-            Font = new Font("Segoe UI", 10.5f, FontStyle.Bold),
+            Font = new Font("Segoe UI", 10.0f, FontStyle.Bold),
             ForeColor = Color.FromArgb(69, 26, 3),
             Text = "Đang kiểm tra thời hạn bản quyền..."
         };
@@ -147,7 +152,7 @@ public partial class Form1 : Form
         btnActivate = new Button
         {
             Dock = DockStyle.Right,
-            Width = 170,
+            Width = 175,
             Text = "🔑 Nhập Mã Bản Quyền",
             Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
             BackColor = Color.White,
@@ -161,8 +166,8 @@ public partial class Form1 : Form
         btnServerConfig = new Button
         {
             Dock = DockStyle.Right,
-            Width = 130,
-            Text = "⚙️ Cài Đặt Máy Chủ",
+            Width = 145,
+            Text = "⚙️ Đổi Máy Chủ",
             Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
             BackColor = Color.FromArgb(254, 243, 199),
             ForeColor = Color.FromArgb(146, 64, 14),
@@ -174,17 +179,18 @@ public partial class Form1 : Form
 
         topBar.Controls.Add(lblCountdown);
         topBar.Controls.Add(btnServerConfig);
-        topBar.Controls.Add(new Label { Dock = DockStyle.Right, Width = 8 }); // Spacing
+        topBar.Controls.Add(new Label { Dock = DockStyle.Right, Width = 8 });
         topBar.Controls.Add(btnActivate);
 
-        // 2. WebView2 Container
         webView = new WebView2
         {
             Dock = DockStyle.Fill
         };
 
+        // Thứ tự thêm controls rất quan trọng trong WinForms:
         this.Controls.Add(webView);
         this.Controls.Add(topBar);
+        topBar.BringToFront();
     }
 
     private async void StartLicenseAndCountdown()
@@ -198,12 +204,6 @@ public partial class Form1 : Form
 
         UpdateCountdownDisplay();
 
-        if (IsExpiredOrTampered())
-        {
-            ShowExpiredScreen();
-            return;
-        }
-
         await InitializeWebViewAsync();
     }
 
@@ -213,12 +213,12 @@ public partial class Form1 : Form
 
         if (!CheckClockRollback())
         {
-            return true; // Phát hiện lùi giờ
+            return true;
         }
 
         if (DateTime.Now > ExpiryDate)
         {
-            return true; // Hết hạn 3 ngày
+            return true;
         }
 
         return false;
@@ -228,12 +228,16 @@ public partial class Form1 : Form
     {
         if (IsSystemLicensed())
         {
-            topBar.BackColor = Color.FromArgb(22, 163, 74); // Xanh lá chuyên nghiệp
+            topBar.BackColor = Color.FromArgb(22, 163, 74);
             lblCountdown.ForeColor = Color.White;
             lblCountdown.Text = "✅ BẢN QUYỀN CHÍNH THỨC (VĨNH VIỄN) - HỆ THỐNG ĐÃ KÍCH HOẠT THÀNH CÔNG";
-            btnActivate.Visible = false;
+            btnActivate.Text = "🔄 Đổi Mã Bản Quyền";
+            btnActivate.ForeColor = Color.FromArgb(22, 163, 74);
             return;
         }
+
+        btnActivate.Text = "🔑 Nhập Mã Bản Quyền";
+        btnActivate.ForeColor = Color.FromArgb(180, 83, 9);
 
         if (!CheckClockRollback())
         {
@@ -254,8 +258,10 @@ public partial class Form1 : Form
         }
         else
         {
+            topBar.BackColor = Color.FromArgb(245, 158, 11);
+            lblCountdown.ForeColor = Color.FromArgb(69, 26, 3);
             string timeStr = $"{(int)remaining.TotalDays} ngày {remaining.Hours:D2} giờ {remaining.Minutes:D2} phút {remaining.Seconds:D2} giây";
-            lblCountdown.Text = $"⏱️ BẢN DÙNG THỬ TRẢI NGHIỆM: Còn lại {timeStr} (Hạn chót: 23:59:59 ngày 03/11/2026)";
+            lblCountdown.Text = $"⏱️ BẢN DÙNG THỬ: Còn lại {timeStr} (Hạn chót: 23:59:59 03/11/2026)";
         }
     }
 
@@ -289,15 +295,23 @@ public partial class Form1 : Form
     {
         try
         {
-            var env = await CoreWebView2Environment.CreateAsync();
+            // Bỏ qua lỗi SSL self-signed của Docker Nginx nội bộ máy local
+            var options = new CoreWebView2EnvironmentOptions("--ignore-certificate-errors --allow-insecure-localhost");
+            var env = await CoreWebView2Environment.CreateAsync(null, null, options);
             await webView.EnsureCoreWebView2Async(env);
 
             webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
-            webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            webView.CoreWebView2.Settings.AreDevToolsEnabled = true; // Cho phép F12 nếu cần inspect
 
-            // Tự động cấp quyền Camera khi quét mã Barcode/QR từ webcam hoặc thiết bị
+            // Chấp nhận SSL tự ký mạng LAN
+            webView.CoreWebView2.ServerCertificateErrorDetected += (s, e) =>
+            {
+                e.Action = CoreWebView2ServerCertificateErrorAction.AlwaysAllow;
+            };
+
+            // Tự động cấp quyền Camera khi quét mã Barcode/QR
             webView.CoreWebView2.PermissionRequested += (s, e) =>
             {
                 if (e.PermissionKind == CoreWebView2PermissionKind.Camera)
@@ -310,20 +324,35 @@ public partial class Form1 : Form
             {
                 if (!e.IsSuccess && !IsExpiredOrTampered())
                 {
+                    // Nếu kết nối https://localhost thất bại, tự động thử sang tunnel dự phòng
+                    if (currentServerUrl == DefaultLocalUrl)
+                    {
+                        currentServerUrl = DefaultTunnelUrl;
+                        webView.CoreWebView2.Navigate(currentServerUrl);
+                        return;
+                    }
+
                     webView.CoreWebView2.NavigateToString(
                         "<html><head><meta charset='utf-8'></head>" +
                         "<body style='font-family:sans-serif;text-align:center;padding:80px 20px;background:#f8fafc;color:#1e293b;'>" +
                         "<div style='max-width:600px;margin:0 auto;background:#fff;padding:40px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.08);'>" +
                         "<h2 style='color:#ea580c;margin-bottom:16px;'>⚠️ Chưa Kết Nối Được Đến Máy Chủ Kho</h2>" +
-                        $"<p style='font-size:15px;color:#64748b;line-height:1.6;'>Địa chỉ máy chủ hiện tại: <code>{currentServerUrl}</code></p>" +
-                        "<p style='font-size:14px;color:#64748b;'>Vui lòng kiểm tra Docker máy chủ kho đã chạy hoặc bấm <b>[⚙️ Cài Đặt Máy Chủ]</b> để đổi địa chỉ IP mạng LAN.</p>" +
+                        $"<p style='font-size:15px;color:#64748b;line-height:1.6;'>Địa chỉ máy chủ đang kết nối: <code>{currentServerUrl}</code></p>" +
+                        "<p style='font-size:14px;color:#64748b;'>Vui lòng kiểm tra Docker máy chủ đã khởi động hoặc bấm <b>[⚙️ Đổi Máy Chủ]</b> ở góc phải để chuyển đổi giữa Local và Online.</p>" +
                         "</div>" +
                         "</body></html>"
                     );
                 }
             };
 
-            webView.CoreWebView2.Navigate(currentServerUrl);
+            if (IsExpiredOrTampered())
+            {
+                ShowExpiredScreen();
+            }
+            else
+            {
+                webView.CoreWebView2.Navigate(currentServerUrl);
+            }
         }
         catch (Exception ex)
         {
@@ -336,7 +365,7 @@ public partial class Form1 : Form
         using var form = new Form
         {
             Text = "Kích Hoạt Bản Quyền Chính Thức",
-            Size = new Size(520, 260),
+            Size = new Size(520, 290),
             StartPosition = FormStartPosition.CenterParent,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
@@ -374,7 +403,7 @@ public partial class Form1 : Form
         var btnSubmit = new Button
         {
             Text = "Xác Nhận Kích Hoạt Vĩnh Viễn",
-            Location = new Point(130, 155),
+            Location = new Point(130, 150),
             Size = new Size(240, 42),
             BackColor = Color.FromArgb(37, 99, 235),
             ForeColor = Color.White,
@@ -384,12 +413,36 @@ public partial class Form1 : Form
         };
         btnSubmit.FlatAppearance.BorderSize = 0;
 
+        var btnResetTrial = new Button
+        {
+            Text = "Quay lại chế độ Dùng Thử 3 Ngày (Reset Test)",
+            Location = new Point(130, 200),
+            Size = new Size(240, 30),
+            BackColor = Color.FromArgb(241, 245, 249),
+            ForeColor = Color.FromArgb(71, 85, 105),
+            Font = new Font("Segoe UI", 8.5f),
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand
+        };
+        btnResetTrial.FlatAppearance.BorderSize = 0;
+        btnResetTrial.Click += (s, e) =>
+        {
+            SaveLicensedStatus(false);
+            MessageBox.Show("Đã chuyển về chế độ Dùng Thử 3 Ngày để kiểm tra!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            form.Close();
+            UpdateCountdownDisplay();
+            if (webView.CoreWebView2 != null && !IsExpiredOrTampered())
+            {
+                webView.CoreWebView2.Navigate(currentServerUrl);
+            }
+        };
+
         btnSubmit.Click += (s, e) =>
         {
             var input = txtKey.Text.Trim();
             if (ValidateLicenseKey(input))
             {
-                SaveLicensedStatus();
+                SaveLicensedStatus(true);
                 MessageBox.Show(
                     "Chúc mừng! Phần mềm Quản Lý Kho (WMS) đã được kích hoạt BẢN QUYỀN CHÍNH THỨC VĨNH VIỄN!\n\nToàn bộ giới hạn dùng thử đã được gỡ bỏ.",
                     "Kích Hoạt Thành Công",
@@ -414,6 +467,7 @@ public partial class Form1 : Form
         form.Controls.Add(txtKey);
         form.Controls.Add(lblStatus);
         form.Controls.Add(btnSubmit);
+        form.Controls.Add(btnResetTrial);
 
         form.ShowDialog(this);
     }
@@ -422,8 +476,8 @@ public partial class Form1 : Form
     {
         using var form = new Form
         {
-            Text = "Cài Đặt Địa Chỉ Máy Chủ Kho (Local LAN)",
-            Size = new Size(540, 240),
+            Text = "Cài Đặt Máy Chủ Quản Lý Kho",
+            Size = new Size(540, 290),
             StartPosition = FormStartPosition.CenterParent,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
@@ -433,26 +487,56 @@ public partial class Form1 : Form
 
         var lblPrompt = new Label
         {
-            Text = "Nhập địa chỉ máy chủ WMS (Ví dụ http://localhost:3000 hoặc IP máy trạm LAN):",
+            Text = "Chọn hoặc nhập địa chỉ máy chủ kết nối:",
             Dock = DockStyle.Top,
-            Height = 40,
-            Padding = new Padding(20, 15, 20, 0),
-            Font = new Font("Segoe UI", 9.5f)
+            Height = 35,
+            Padding = new Padding(20, 12, 20, 0),
+            Font = new Font("Segoe UI", 10.0f, FontStyle.Bold)
         };
 
-        var txtUrl = new TextBox
+        var rbLocal = new RadioButton
         {
-            Location = new Point(24, 60),
-            Width = 475,
-            Font = new Font("Segoe UI", 11.0f),
+            Location = new Point(24, 45),
+            Size = new Size(470, 25),
+            Text = "Máy chủ Local nội bộ: https://localhost (Docker trên máy này)",
+            Font = new Font("Segoe UI", 9.5f),
+            Checked = currentServerUrl == DefaultLocalUrl
+        };
+
+        var rbTunnel = new RadioButton
+        {
+            Location = new Point(24, 75),
+            Size = new Size(470, 25),
+            Text = "Máy chủ Online Cloudflare Tunnel (Dùng được cho cả điện thoại)",
+            Font = new Font("Segoe UI", 9.5f),
+            Checked = currentServerUrl == DefaultTunnelUrl
+        };
+
+        var rbCustom = new RadioButton
+        {
+            Location = new Point(24, 105),
+            Size = new Size(470, 25),
+            Text = "Tùy chỉnh IP máy trạm LAN khác:",
+            Font = new Font("Segoe UI", 9.5f),
+            Checked = currentServerUrl != DefaultLocalUrl && currentServerUrl != DefaultTunnelUrl
+        };
+
+        var txtCustom = new TextBox
+        {
+            Location = new Point(44, 135),
+            Width = 450,
+            Font = new Font("Segoe UI", 10.0f),
             Text = currentServerUrl
         };
+
+        rbLocal.CheckedChanged += (s, e) => { if (rbLocal.Checked) txtCustom.Text = DefaultLocalUrl; };
+        rbTunnel.CheckedChanged += (s, e) => { if (rbTunnel.Checked) txtCustom.Text = DefaultTunnelUrl; };
 
         var btnSave = new Button
         {
             Text = "Lưu & Kết Nối Lại",
-            Location = new Point(170, 125),
-            Size = new Size(180, 40),
+            Location = new Point(170, 190),
+            Size = new Size(180, 42),
             BackColor = Color.FromArgb(16, 185, 129),
             ForeColor = Color.White,
             Font = new Font("Segoe UI", 10.0f, FontStyle.Bold),
@@ -463,7 +547,7 @@ public partial class Form1 : Form
 
         btnSave.Click += (s, e) =>
         {
-            var newUrl = txtUrl.Text.Trim();
+            var newUrl = txtCustom.Text.Trim();
             if (!string.IsNullOrEmpty(newUrl))
             {
                 currentServerUrl = newUrl;
@@ -484,7 +568,10 @@ public partial class Form1 : Form
         };
 
         form.Controls.Add(lblPrompt);
-        form.Controls.Add(txtUrl);
+        form.Controls.Add(rbLocal);
+        form.Controls.Add(rbTunnel);
+        form.Controls.Add(rbCustom);
+        form.Controls.Add(txtCustom);
         form.Controls.Add(btnSave);
 
         form.ShowDialog(this);
@@ -496,14 +583,11 @@ public partial class Form1 : Form
 
         key = key.Trim().ToUpperInvariant();
 
-        // 1. Kiểm tra khớp các Master Keys
         foreach (var masterKey in ValidMasterKeys)
         {
             if (key == masterKey) return true;
         }
 
-        // 2. Kiểm tra thuật toán mã hóa độc quyền:
-        // Cấu trúc: WMS-PRO-xxxx-xxxx với checksum SHA256
         if (key.StartsWith("WMS-PRO-") && key.Length >= 16)
         {
             using var sha = SHA256.Create();
