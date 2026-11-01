@@ -763,3 +763,38 @@ p {
     width: calc(100% - 12px) !important;
   }
 }
+
+/* ==========================================================================
+   DYNAMIC FONT SIZE SCALING
+   ========================================================================== */
+html[data-font-size="13"] {
+  font-size: 13px;
+}
+html[data-font-size="14"] {
+  font-size: 14px;
+}
+html[data-font-size="16"] {
+  font-size: 16px;
+}
+html[data-font-size="18"] {
+  font-size: 18px;
+}
+
+html[data-font-size="16"] .ant-table,
+html[data-font-size="16"] .main-content,
+html[data-font-size="16"] .ant-menu {
+  font-size: 15px;
+}
+html[data-font-size="16"] .ant-table-cell {
+  padding: 12px 14px !important;
+}
+
+html[data-font-size="18"] .ant-table,
+html[data-font-size="18"] .main-content,
+html[data-font-size="18"] .ant-menu {
+  font-size: 17px;
+}
+html[data-font-size="18"] .ant-table-cell {
+  padding: 14px 16px !important;
+}
+

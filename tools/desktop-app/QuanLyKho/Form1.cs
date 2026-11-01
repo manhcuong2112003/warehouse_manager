@@ -40,6 +40,7 @@ public partial class Form1 : Form
     private const string RegValueStoragePath = "StoragePath";
     private const string RegValueDarkMode = "IsDarkMode";
     private const string RegValueTopBarVisible = "TopBarVisible";
+    private const string RegValueFontSize = "FontSize";
 
     public const string DefaultLocalUrl = "https://localhost";
     public const string DefaultTunnelUrl = "https://biological-candy-instruments-installations.trycloudflare.com";
@@ -48,6 +49,8 @@ public partial class Form1 : Form
     private string currentStoragePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "QuanLyKho_Data");
     private bool isDarkMode = false;
     private bool isTopBarVisible = true;
+    private int currentFontSize = 14;
+    private double currentZoomFactor = 1.0;
     private int retryCount = 0;
 
     public Form1()
@@ -103,6 +106,13 @@ public partial class Form1 : Form
                 if (savedBarVisible != null)
                 {
                     isTopBarVisible = savedBarVisible == "1" || savedBarVisible == "TRUE";
+                }
+
+                var savedFontSize = key.GetValue(RegValueFontSize) as string;
+                if (!string.IsNullOrWhiteSpace(savedFontSize) && int.TryParse(savedFontSize, out int fs))
+                {
+                    currentFontSize = (fs == 13 || fs == 14 || fs == 16 || fs == 18) ? fs : 14;
+                    currentZoomFactor = currentFontSize == 13 ? 0.92 : currentFontSize == 16 ? 1.15 : currentFontSize == 18 ? 1.28 : 1.0;
                 }
             }
         }
@@ -443,6 +453,7 @@ public partial class Form1 : Form
             webView.CoreWebView2.NavigationCompleted += (s, e) =>
             {
                 ApplyThemeToWebView();
+                ApplyFontSizeToWebView();
 
                 if (e.IsSuccess)
                 {
@@ -528,12 +539,30 @@ public partial class Form1 : Form
         }
     }
 
+    private void ApplyFontSizeToWebView()
+    {
+        if (webView?.CoreWebView2 != null)
+        {
+            try
+            {
+                webView.ZoomFactor = currentZoomFactor;
+                string script = $"if (window.__setFontSize) {{ window.__setFontSize({currentFontSize}); }} " +
+                                $"localStorage.setItem('wms_font_size', '{currentFontSize}'); " +
+                                $"document.documentElement.setAttribute('data-font-size', '{currentFontSize}'); " +
+                                $"document.documentElement.style.fontSize = '{currentFontSize}px'; " +
+                                $"window.dispatchEvent(new CustomEvent('wms-font-size-change', {{ detail: {{ fontSize: {currentFontSize} }} }}));";
+                webView.CoreWebView2.ExecuteScriptAsync(script);
+            }
+            catch { }
+        }
+    }
+
     public void ShowUnifiedSettingsDialog()
     {
         using var form = new Form
         {
             Text = "Cài Đặt Hệ Thống WMS",
-            Size = new Size(620, 560),
+            Size = new Size(620, 640),
             StartPosition = FormStartPosition.CenterParent,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
@@ -629,10 +658,58 @@ public partial class Form1 : Form
 
         y += 82;
 
-        // --- 3. Đăng xuất / Đổi tài khoản ---
+        // --- 3. Cỡ chữ & Tỷ lệ hiển thị ---
+        var grpFont = new GroupBox
+        {
+            Text = "🔤 3. Cỡ chữ hiển thị (Font Size)",
+            Location = new Point(20, y),
+            Size = new Size(560, 70),
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
+        };
+        var rbFontSmall = new RadioButton
+        {
+            Location = new Point(20, 28),
+            Size = new Size(115, 24),
+            Text = "Nhỏ (13px)",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+            Checked = currentFontSize == 13
+        };
+        var rbFontNormal = new RadioButton
+        {
+            Location = new Point(140, 28),
+            Size = new Size(130, 24),
+            Text = "Vừa (14px - Chuẩn)",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+            Checked = currentFontSize == 14
+        };
+        var rbFontLarge = new RadioButton
+        {
+            Location = new Point(280, 28),
+            Size = new Size(115, 24),
+            Text = "Lớn (16px)",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+            Checked = currentFontSize == 16
+        };
+        var rbFontXLarge = new RadioButton
+        {
+            Location = new Point(405, 28),
+            Size = new Size(135, 24),
+            Text = "Rất lớn (18px)",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+            Checked = currentFontSize == 18
+        };
+        grpFont.Controls.Add(rbFontSmall);
+        grpFont.Controls.Add(rbFontNormal);
+        grpFont.Controls.Add(rbFontLarge);
+        grpFont.Controls.Add(rbFontXLarge);
+        form.Controls.Add(grpFont);
+
+        y += 82;
+
+        // --- 4. Đăng xuất / Đổi tài khoản ---
         var grpAccount = new GroupBox
         {
-            Text = "👤 3. Tài khoản người dùng",
+            Text = "👤 4. Tài khoản người dùng",
             Location = new Point(20, y),
             Size = new Size(560, 70),
             Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
@@ -684,10 +761,10 @@ public partial class Form1 : Form
 
         y += 82;
 
-        // --- 4. Máy chủ kho ---
+        // --- 5. Máy chủ kho ---
         var grpServer = new GroupBox
         {
-            Text = "🌐 4. Địa chỉ máy chủ kho (LAN / Online)",
+            Text = "🌐 5. Địa chỉ máy chủ kho (LAN / Online)",
             Location = new Point(20, y),
             Size = new Size(560, 85),
             Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
@@ -763,7 +840,12 @@ public partial class Form1 : Form
             isDarkMode = rbDark.Checked;
             ApplyThemeToWebView();
 
-            // 3. Lưu Server
+            // 3. Lưu Cỡ chữ
+            currentFontSize = rbFontSmall.Checked ? 13 : rbFontLarge.Checked ? 16 : rbFontXLarge.Checked ? 18 : 14;
+            currentZoomFactor = currentFontSize == 13 ? 0.92 : currentFontSize == 16 ? 1.15 : currentFontSize == 18 ? 1.28 : 1.0;
+            ApplyFontSizeToWebView();
+
+            // 4. Lưu Server
             var sUrl = txtServer.Text.Trim();
             bool serverChanged = false;
             if (!string.IsNullOrEmpty(sUrl) && sUrl != currentServerUrl)
@@ -772,7 +854,7 @@ public partial class Form1 : Form
                 serverChanged = true;
             }
 
-            // 4. Lưu Hiển thị TopBar
+            // 5. Lưu Hiển thị TopBar
             SaveTopBarVisibility(chkShowTopBar.Checked);
             topBar.Visible = isTopBarVisible;
             btnFloatingSettings.Visible = !isTopBarVisible;
@@ -783,6 +865,7 @@ public partial class Form1 : Form
                 using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath);
                 key?.SetValue(RegValueStoragePath, currentStoragePath);
                 key?.SetValue(RegValueDarkMode, isDarkMode ? "1" : "0");
+                key?.SetValue(RegValueFontSize, currentFontSize.ToString());
                 key?.SetValue(RegValueServerUrl, currentServerUrl);
             }
             catch { }

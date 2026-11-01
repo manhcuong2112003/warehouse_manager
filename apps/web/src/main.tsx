@@ -12,20 +12,47 @@ function Root() {
   const [isDark, setIsDark] = useState<boolean>(() => {
     return localStorage.getItem("wms_dark") === "true";
   });
+  const [fontSize, setFontSize] = useState<number>(() => {
+    const saved = localStorage.getItem("wms_font_size");
+    return saved ? Number(saved) : 14;
+  });
 
   useEffect(() => {
-    const handler = (e: any) => {
+    document.documentElement.setAttribute("data-font-size", String(fontSize));
+    document.documentElement.style.fontSize = fontSize + "px";
+  }, [fontSize]);
+
+  useEffect(() => {
+    const themeHandler = (e: any) => {
       if (e?.detail?.isDark !== undefined) {
         setIsDark(e.detail.isDark);
       }
     };
-    window.addEventListener("wms-theme-change", handler);
-    // Expose global helper for WebView2
+    const fontHandler = (e: any) => {
+      if (e?.detail?.fontSize !== undefined) {
+        setFontSize(e.detail.fontSize);
+      }
+    };
+    window.addEventListener("wms-theme-change", themeHandler);
+    window.addEventListener("wms-font-size-change", fontHandler);
+
+    // Expose global helpers for WebView2 / desktop app
     (window as any).__toggleTheme = (dark: boolean) => {
       localStorage.setItem("wms_dark", String(dark));
       setIsDark(dark);
     };
-    return () => window.removeEventListener("wms-theme-change", handler);
+
+    (window as any).__setFontSize = (size: number) => {
+      localStorage.setItem("wms_font_size", String(size));
+      setFontSize(size);
+      document.documentElement.setAttribute("data-font-size", String(size));
+      document.documentElement.style.fontSize = size + "px";
+    };
+
+    return () => {
+      window.removeEventListener("wms-theme-change", themeHandler);
+      window.removeEventListener("wms-font-size-change", fontHandler);
+    };
   }, []);
 
   return (
@@ -37,6 +64,7 @@ function Root() {
           colorPrimary: "#176b80",
           borderRadius: 8,
           fontFamily: "Inter, Segoe UI, sans-serif",
+          fontSize: fontSize,
           colorBgLayout: isDark ? "#141414" : "#f3f6f9",
         },
         components: {
@@ -44,7 +72,7 @@ function Root() {
             headerBg: isDark ? "#1f1f1f" : "#edf3f7",
             headerColor: isDark ? "#e6e6e6" : "#324b60",
           },
-          Button: { controlHeight: 38 },
+          Button: { controlHeight: fontSize >= 16 ? 42 : 38 },
         },
       }}
     >

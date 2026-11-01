@@ -212,14 +212,14 @@ export function Dashboard({ warehouse, navigate }: PageProps) {
         >
           <div>
             <h3 style={{ margin: "0 0 4px", fontSize: 16 }}>
-              📊 Báo Cáo Tồn & Ma Trận Xuất Kho Theo Ngày
+              📊 Báo Cáo Tồn & Xuất Kho Theo Ngày
             </h3>
             <p style={{ margin: 0, color: "#64748b" }}>
-              Bảng ma trận xuất kho chi tiết theo các ngày trong tuần (Thứ 2 đến Chủ nhật), số lượng tồn thực tế và truy vết từng linh kiện.
+              Bảng theo dõi xuất kho chi tiết theo các ngày trong tuần (Thứ 2 đến Chủ nhật), số lượng tồn thực tế và truy vết từng linh kiện.
             </p>
           </div>
           <Button type="primary" onClick={() => navigate("matrix")}>
-            Mở Ma Trận Xuất Kho →
+            Mở Báo Cáo Xuất Theo Ngày →
           </Button>
         </div>
       </Card>
@@ -290,6 +290,7 @@ export function Inventory({ warehouse, user }: PageProps) {
   const [q, setQ] = useState(""),
     [preset, setPreset] = useState(""),
     [page, setPage] = useState(1),
+    [pageSize, setPageSize] = useState(50),
     [data, setData] = useState<any>({ rows: [], total: 0 }),
     [loading, setLoading] = useState(false),
     [reload, setReload] = useState(0);
@@ -298,7 +299,14 @@ export function Inventory({ warehouse, user }: PageProps) {
     const t = setTimeout(() => {
       setLoading(true);
       api(
-        `/inventory/packs?${params({ ...filters, warehouseId: warehouse, q, preset, offset: (page - 1) * 50 })}`,
+        `/inventory/packs?${params({
+          ...filters,
+          warehouseId: warehouse,
+          q,
+          preset,
+          limit: pageSize,
+          offset: (page - 1) * pageSize,
+        })}`,
       )
         .then((d) => {
           if (active) setData(d);
@@ -312,7 +320,7 @@ export function Inventory({ warehouse, user }: PageProps) {
       active = false;
       clearTimeout(t);
     };
-  }, [q, preset, page, reload, filters]);
+  }, [q, preset, page, pageSize, reload, filters]);
   return (
     <Card>
       <div className="toolbar">
@@ -368,10 +376,17 @@ export function Inventory({ warehouse, user }: PageProps) {
         scroll={{ x: 1400 }}
         pagination={{
           current: page,
+          pageSize: pageSize,
           total: data.total,
-          pageSize: 50,
-          onChange: setPage,
-          showSizeChanger: false,
+          pageSizeOptions: ["20", "50", "100", "200"],
+          showSizeChanger: true,
+          showQuickJumper: true,
+          showTotal: (total, range) =>
+            `${range[0]}-${range[1]} / ${fmt(total)} pack`,
+          onChange: (p, ps) => {
+            setPage(p);
+            setPageSize(ps);
+          },
         }}
         columns={[
           {
@@ -557,6 +572,8 @@ export function Catalog({ warehouse, user }: PageProps) {
     [q, setQ] = useState(""),
     [rows, setRows] = useState<any[]>([]),
     [open, setOpen] = useState(false),
+    [catPage, setCatPage] = useState(1),
+    [catPageSize, setCatPageSize] = useState(15),
     [form] = Form.useForm();
   const load = () =>
     api(
@@ -569,6 +586,7 @@ export function Catalog({ warehouse, user }: PageProps) {
       .then(setRows)
       .catch((e) => message.error(e.message));
   useEffect(() => {
+    setCatPage(1);
     load();
   }, [tab, q]);
   return (
@@ -611,9 +629,29 @@ export function Catalog({ warehouse, user }: PageProps) {
       <Table<any>
         rowKey={(r) => r.id || r.code}
         dataSource={rows}
+        pagination={{
+          current: catPage,
+          pageSize: catPageSize,
+          pageSizeOptions: ["10", "15", "20", "50", "100"],
+          showSizeChanger: true,
+          showQuickJumper: true,
+          showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} mục`,
+          onChange: (p, ps) => {
+            setCatPage(p);
+            setCatPageSize(ps);
+          },
+        }}
         columns={
           tab === "products"
             ? [
+                {
+                  title: "STT",
+                  key: "stt",
+                  width: 60,
+                  align: "center",
+                  render: (_: any, __: any, index: number) =>
+                    (catPage - 1) * catPageSize + index + 1,
+                },
                 {
                   title: "Code linh kiện (Part No)",
                   dataIndex: "part_no",
@@ -643,6 +681,14 @@ export function Catalog({ warehouse, user }: PageProps) {
                 { title: "NCC mặc định", dataIndex: "default_vendor_code", render: (v) => v || "—" },
               ]
             : [
+                {
+                  title: "STT",
+                  key: "stt",
+                  width: 60,
+                  align: "center",
+                  render: (_: any, __: any, index: number) =>
+                    (catPage - 1) * catPageSize + index + 1,
+                },
                 {
                   title: "Mã",
                   dataIndex: "code",
@@ -740,6 +786,8 @@ export function Outbound({ warehouse, user }: PageProps) {
     [operators, setOperators] = useState<any[]>([]),
     [open, setOpen] = useState(false),
     [busy, setBusy] = useState(""),
+    [outPage, setOutPage] = useState(1),
+    [outPageSize, setOutPageSize] = useState(15),
     [form] = Form.useForm();
   const load = () =>
     api(`/outbound/orders?warehouseId=${warehouse}`)
@@ -791,7 +839,27 @@ export function Outbound({ warehouse, user }: PageProps) {
       <Table<any>
         rowKey="id"
         dataSource={rows}
+        pagination={{
+          current: outPage,
+          pageSize: outPageSize,
+          pageSizeOptions: ["10", "15", "20", "50", "100"],
+          showSizeChanger: true,
+          showQuickJumper: true,
+          showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} phiếu xuất`,
+          onChange: (p, ps) => {
+            setOutPage(p);
+            setOutPageSize(ps);
+          },
+        }}
         columns={[
+          {
+            title: "STT",
+            key: "stt",
+            width: 60,
+            align: "center",
+            render: (_: any, __: any, index: number) =>
+              (outPage - 1) * outPageSize + index + 1,
+          },
           {
             title: "Mã phiếu",
             dataIndex: "reference",
@@ -975,6 +1043,8 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [productDetail, setProductDetail] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
 
   const loadMatrix = () => {
     setMatrixLoading(true);
@@ -989,6 +1059,10 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
   useEffect(() => {
     loadMatrix();
   }, [warehouse, matrixDays]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, matrixDays]);
 
   const openProductDetail = (productId: string) => {
     setDetailId(productId);
@@ -1019,7 +1093,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
         title={
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 18, fontWeight: 700 }}>
-              📊 Báo Cáo Tồn & Ma Trận Xuất Kho Theo Ngày
+              📊 Báo Cáo Tồn & Xuất Kho Theo Ngày
             </span>
           </div>
         }
@@ -1059,14 +1133,27 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
           size="middle"
           scroll={{ x: 1250 }}
           loading={matrixLoading}
-          pagination={{ pageSize: 15, showSizeChanger: true }}
+          pagination={{
+            current: page,
+            pageSize: pageSize,
+            pageSizeOptions: ["10", "15", "20", "50", "100"],
+            showSizeChanger: true,
+            showQuickJumper: true,
+            showTotal: (total, range) =>
+              `${range[0]}-${range[1]} / Tổng số ${total} linh kiện`,
+            onChange: (p, ps) => {
+              setPage(p);
+              setPageSize(ps);
+            },
+          }}
           columns={[
             {
               title: "STT",
               key: "stt",
-              width: 55,
+              width: 60,
               align: "center",
-              render: (_: any, __: any, index: number) => index + 1,
+              render: (_: any, __: any, index: number) =>
+                (page - 1) * pageSize + index + 1,
             },
             {
               title: "Model sử dụng",

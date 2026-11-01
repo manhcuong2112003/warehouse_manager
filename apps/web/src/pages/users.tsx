@@ -18,6 +18,8 @@ export function Users() {
   const [rows, setRows] = useState<any[]>([]),
     [warehouses, setWarehouses] = useState<any[]>([]),
     [open, setOpen] = useState(false),
+    [userPage, setUserPage] = useState(1),
+    [userPageSize, setUserPageSize] = useState(10),
     [form] = Form.useForm();
   const load = () => api("/users").then(setRows);
   useEffect(() => {
@@ -43,7 +45,28 @@ export function Users() {
       <Table<any>
         rowKey="id"
         dataSource={rows}
+        pagination={{
+          current: userPage,
+          pageSize: userPageSize,
+          pageSizeOptions: ["10", "20", "50"],
+          showSizeChanger: true,
+          showQuickJumper: true,
+          showTotal: (total, range) =>
+            `${range[0]}-${range[1]} / ${total} người dùng`,
+          onChange: (p, ps) => {
+            setUserPage(p);
+            setUserPageSize(ps);
+          },
+        }}
         columns={[
+          {
+            title: "STT",
+            key: "stt",
+            width: 60,
+            align: "center",
+            render: (_: any, __: any, index: number) =>
+              (userPage - 1) * userPageSize + index + 1,
+          },
           { title: "Tên đăng nhập", dataIndex: "username" },
           { title: "Họ tên", dataIndex: "display_name" },
           { title: "Quyền", dataIndex: "role" },

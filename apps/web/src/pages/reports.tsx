@@ -192,7 +192,11 @@ export function Reports({ warehouse }: PageProps) {
           current: page,
           total: data.total,
           pageSize: 100,
-          showSizeChanger: false,
+          pageSizeOptions: ["50", "100", "200"],
+          showSizeChanger: true,
+          showQuickJumper: true,
+          showTotal: (total, range) =>
+            `${range[0]}-${range[1]} / ${fmt(total)} bản ghi`,
           onChange: setPage,
         }}
         columns={keys.map((key, i) => ({

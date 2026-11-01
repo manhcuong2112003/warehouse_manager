@@ -6,6 +6,8 @@ import {
   Input,
   Layout,
   Menu,
+  Modal,
+  Segmented,
   Select,
   Space,
   Spin,
@@ -23,6 +25,7 @@ import {
   SunOutlined,
   MoonOutlined,
   TableOutlined,
+  SettingOutlined,
 } from "@ant-design/icons";
 import { api, post, setCsrf } from "./api";
 import { Dashboard, Inventory, Catalog, Outbound, OutboundMatrixPage } from "./pages/operations";
@@ -32,7 +35,7 @@ import { Reports } from "./pages/reports";
 import { Users } from "./pages/users";
 const entries = [
   { key: "dashboard", label: "Tổng quan", icon: <DashboardOutlined /> },
-  { key: "matrix", label: "Ma trận tồn & xuất", icon: <TableOutlined /> },
+  { key: "matrix", label: "Xuất kho theo ngày", icon: <TableOutlined /> },
   { key: "inventory", label: "Tồn kho", icon: <InboxOutlined /> },
   { key: "inbound", label: "Quét nhập kho", icon: <ScanOutlined /> },
   { key: "outbound", label: "Xuất kho FEFO", icon: <ExportOutlined /> },
@@ -47,7 +50,15 @@ export function WmsApp() {
     [warehouses, setWarehouses] = useState<any[]>([]),
     [warehouse, setWarehouse] = useState(""),
     [page, setPage] = useState("dashboard"),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [settingsOpen, setSettingsOpen] = useState(false),
+    [currentFontSize, setCurrentFontSize] = useState<number>(() => {
+      const saved = localStorage.getItem("wms_font_size");
+      return saved ? Number(saved) : 14;
+    }),
+    [isDarkTheme, setIsDarkTheme] = useState<boolean>(() => {
+      return localStorage.getItem("wms_dark") === "true";
+    });
   const load = async () => {
     const r = await api("/auth/me");
     setCsrf(r.csrfToken);
@@ -197,10 +208,18 @@ export function WmsApp() {
             </Tag>
             <span className="user-name">{user.display_name}</span>
             <Button
-              icon={localStorage.getItem("wms_dark") === "true" ? <SunOutlined /> : <MoonOutlined />}
+              icon={<SettingOutlined />}
+              title="Cài đặt hệ thống & Cỡ chữ"
+              onClick={() => setSettingsOpen(true)}
+            >
+              Cài đặt
+            </Button>
+            <Button
+              icon={isDarkTheme ? <SunOutlined /> : <MoonOutlined />}
               title="Đổi giao diện Sáng / Tối"
               onClick={() => {
-                const next = localStorage.getItem("wms_dark") !== "true";
+                const next = !isDarkTheme;
+                setIsDarkTheme(next);
                 if ((window as any).__toggleTheme) {
                   (window as any).__toggleTheme(next);
                 } else {
@@ -265,6 +284,115 @@ export function WmsApp() {
           Kho Vật Tư · Tồn theo pack · Asia/Ho_Chi_Minh
         </Layout.Footer>
       </Layout>
+
+      <Modal
+        title="⚙️ Cài Đặt Hệ Thống & Hiển Thị"
+        open={settingsOpen}
+        onCancel={() => setSettingsOpen(false)}
+        footer={[
+          <Button
+            key="close"
+            type="primary"
+            onClick={() => setSettingsOpen(false)}
+          >
+            Hoàn tất
+          </Button>,
+        ]}
+      >
+        <div style={{ marginBottom: 22 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>
+            🔤 Cỡ chữ hiển thị
+          </div>
+          <p style={{ color: "#64748b", fontSize: 13, marginBottom: 10 }}>
+            Tùy chỉnh độ lớn chữ trên bảng biểu và giao diện giúp dễ quan sát số liệu kho.
+          </p>
+          <Segmented
+            value={currentFontSize}
+            onChange={(val) => {
+              const size = Number(val);
+              setCurrentFontSize(size);
+              if ((window as any).__setFontSize) {
+                (window as any).__setFontSize(size);
+              } else {
+                localStorage.setItem("wms_font_size", String(size));
+                window.dispatchEvent(
+                  new CustomEvent("wms-font-size-change", {
+                    detail: { fontSize: size },
+                  }),
+                );
+              }
+            }}
+            options={[
+              { label: "Nhỏ (13px)", value: 13 },
+              { label: "Vừa (14px - Chuẩn)", value: 14 },
+              { label: "Lớn (16px)", value: 16 },
+              { label: "Rất lớn (18px)", value: 18 },
+            ]}
+            block
+          />
+          <div
+            style={{
+              marginTop: 12,
+              padding: "10px 14px",
+              background: isDarkTheme ? "#1f1f1f" : "#f1f5f9",
+              borderRadius: 6,
+              fontSize: currentFontSize,
+              fontWeight: 500,
+              border: isDarkTheme ? "1px solid #333" : "1px solid #e2e8f0",
+            }}
+          >
+            👀 Xem trước: Mã GH64-10383A · Tồn 24.000 PCS · Lô LOT-202610
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 22 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>
+            🌓 Giao diện làm việc
+          </div>
+          <Segmented
+            value={isDarkTheme ? "dark" : "light"}
+            onChange={(v) => {
+              const dark = v === "dark";
+              setIsDarkTheme(dark);
+              if ((window as any).__toggleTheme) {
+                (window as any).__toggleTheme(dark);
+              } else {
+                localStorage.setItem("wms_dark", String(dark));
+                window.dispatchEvent(
+                  new CustomEvent("wms-theme-change", {
+                    detail: { isDark: dark },
+                  }),
+                );
+              }
+            }}
+            options={[
+              { label: "☀️ Giao diện Sáng (Light)", value: "light" },
+              { label: "🌙 Giao diện Tối (Dark Mode)", value: "dark" },
+            ]}
+            block
+          />
+        </div>
+
+        {(window as any).chrome?.webview && (
+          <div
+            style={{
+              marginTop: 16,
+              paddingTop: 16,
+              borderTop: isDarkTheme ? "1px dashed #333" : "1px dashed #cbd5e1",
+            }}
+          >
+            <Button
+              block
+              onClick={() => {
+                (window as any).chrome?.webview?.postMessage("open_settings");
+                setSettingsOpen(false);
+              }}
+            >
+              ⚙️ Mở Cài Đặt Ứng Dụng Desktop Nâng Cao (F2)
+            </Button>
+          </div>
+        )}
+      </Modal>
     </Layout>
   );
 }
