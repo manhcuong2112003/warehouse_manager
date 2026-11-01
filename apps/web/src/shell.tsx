@@ -177,17 +177,45 @@ export function WmsApp() {
           </div>
         </div>
         <div className="menu-caption">{t("workspace_caption")}</div>
-        <Menu
-          theme="dark"
-          mode="inline"
-          items={menu}
-          selectedKeys={[page]}
-          onClick={({ key }) => setPage(key)}
-        />
-        <div className="sidebar-note">
-          <div className="live-dot" /> {t("server_connected")}
-          <br />
-          <small>{t("server_subtitle")}</small>
+        <div className="sidebar-menu-scroll">
+          <Menu
+            theme="dark"
+            mode="inline"
+            items={menu}
+            selectedKeys={[page]}
+            onClick={({ key }) => setPage(key)}
+          />
+        </div>
+        <div className="sidebar-footer">
+          <div className="sidebar-actions">
+            <Button
+              className="sidebar-action-btn"
+              icon={<SettingOutlined />}
+              title={t("settings_title")}
+              onClick={() => setSettingsOpen(true)}
+              block
+            >
+              {t("settings_btn")}
+            </Button>
+            <Button
+              className="sidebar-action-btn sidebar-logout-btn"
+              icon={<LogoutOutlined />}
+              danger
+              onClick={async () => {
+                await post("/auth/logout");
+                setUser(undefined);
+                setCsrf("");
+              }}
+              block
+            >
+              {t("logout_btn")}
+            </Button>
+          </div>
+          <div className="sidebar-note">
+            <div className="live-dot" /> {t("server_connected")}
+            <br />
+            <small>{t("server_subtitle")}</small>
+          </div>
         </div>
       </Layout.Sider>
       <Layout>
@@ -223,13 +251,6 @@ export function WmsApp() {
             </Tag>
             <span className="user-name">{user.display_name}</span>
             <Button
-              icon={<SettingOutlined />}
-              title={t("settings_title")}
-              onClick={() => setSettingsOpen(true)}
-            >
-              {t("settings_btn")}
-            </Button>
-            <Button
               icon={isDarkTheme ? <SunOutlined /> : <MoonOutlined />}
               title={t("theme_btn")}
               onClick={() => {
@@ -243,17 +264,6 @@ export function WmsApp() {
                 }
               }}
             />
-            <Button
-              icon={<LogoutOutlined />}
-              danger
-              onClick={async () => {
-                await post("/auth/logout");
-                setUser(undefined);
-                setCsrf("");
-              }}
-            >
-              {t("logout_btn")}
-            </Button>
           </Space>
         </Layout.Header>
         <Layout.Content className="main-content">

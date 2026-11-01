@@ -93,16 +93,63 @@ p {
 .sidebar .ant-menu-item-selected {
   background: #235671 !important;
 }
+.sidebar-menu-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+.sidebar-footer {
+  margin-top: auto;
+  padding: 14px 14px 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.15);
+}
+.sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sidebar-action-btn {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  height: 38px !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #e2e8f0 !important;
+  font-weight: 500 !important;
+  border-radius: 8px !important;
+  font-size: 13.5px !important;
+  padding: 0 14px !important;
+  transition: all 0.2s ease !important;
+}
+.sidebar-action-btn:hover {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  color: #fff !important;
+}
+.sidebar-logout-btn {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.25) !important;
+  color: #fca5a5 !important;
+}
+.sidebar-logout-btn:hover {
+  background: rgba(239, 68, 68, 0.25) !important;
+  border-color: rgba(239, 68, 68, 0.5) !important;
+  color: #fecaca !important;
+}
 .sidebar-note {
   position: static;
-  margin-top: auto;
-  padding: 24px 24px 27px;
-  color: #c4d5e1;
-  font-size: 12px;
-  line-height: 2;
+  padding: 4px 6px 0;
+  color: #94a3b8;
+  font-size: 11px;
+  line-height: 1.6;
 }
 .sidebar-note small {
-  color: #7291a8;
+  color: #64748b;
   font-size: 10px;
 }
 .live-dot {

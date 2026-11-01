@@ -20,7 +20,6 @@ public partial class Form1 : Form
     private Button btnActivate = null!;
     private Button btnSettings = null!;
     private Button btnDismiss = null!;
-    private Button btnFloatingSettings = null!;
     private System.Windows.Forms.Timer countdownTimer = null!;
 
     // Cấu hình thời hạn dùng thử: Hết hạn lúc 23:59:59 ngày 03/11/2026
@@ -238,7 +237,6 @@ public partial class Form1 : Form
         {
             topBar.Visible = false;
             SaveTopBarVisibility(false);
-            btnFloatingSettings.Visible = true;
         };
 
         btnActivate = new Button
@@ -276,41 +274,16 @@ public partial class Form1 : Form
         topBar.Controls.Add(new Label { Dock = DockStyle.Right, Width = 6 });
         topBar.Controls.Add(btnDismiss);
 
-        // 2. Floating Settings Button (Hiển thị khi topBar bị ẩn)
-        btnFloatingSettings = new Button
-        {
-            Size = new Size(110, 32),
-            Text = "⚙️ Cài đặt (F2)",
-            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
-            BackColor = Color.FromArgb(30, 41, 59),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
-            Cursor = Cursors.Hand,
-            Visible = !isTopBarVisible,
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Location = new Point(this.ClientSize.Width - 125, 8)
-        };
-        btnFloatingSettings.FlatAppearance.BorderSize = 0;
-        btnFloatingSettings.Click += (s, e) => ShowUnifiedSettingsDialog();
-
-        // 3. WebView2
+        // 2. WebView2
         webView = new WebView2
         {
             Dock = DockStyle.Fill
         };
 
-        this.Controls.Add(btnFloatingSettings);
         this.Controls.Add(webView);
         this.Controls.Add(topBar);
 
         topBar.BringToFront();
-        btnFloatingSettings.BringToFront();
-
-        this.Resize += (s, e) =>
-        {
-            btnFloatingSettings.Location = new Point(this.ClientSize.Width - 125, 8);
-            btnFloatingSettings.BringToFront();
-        };
     }
 
     private async void StartLicenseAndCountdown()
@@ -924,7 +897,6 @@ public partial class Form1 : Form
             // 6. Lưu Hiển thị TopBar
             SaveTopBarVisibility(chkShowTopBar.Checked);
             topBar.Visible = isTopBarVisible;
-            btnFloatingSettings.Visible = !isTopBarVisible;
 
             // Lưu Registry
             try
