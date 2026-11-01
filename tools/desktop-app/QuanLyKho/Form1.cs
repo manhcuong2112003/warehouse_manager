@@ -18,7 +18,6 @@ public partial class Form1 : Form
     private Panel topBar = null!;
     private Label lblCountdown = null!;
     private Button btnActivate = null!;
-    private Button btnSettings = null!;
     private Button btnDismiss = null!;
     private System.Windows.Forms.Timer countdownTimer = null!;
 
@@ -253,23 +252,7 @@ public partial class Form1 : Form
         btnActivate.FlatAppearance.BorderSize = 0;
         btnActivate.Click += (s, e) => ShowActivationDialog();
 
-        btnSettings = new Button
-        {
-            Dock = DockStyle.Right,
-            Width = 120,
-            Text = "⚙️ Cài Đặt (F2)",
-            Font = new Font("Segoe UI", 9.0f, FontStyle.Bold),
-            BackColor = Color.FromArgb(254, 243, 199),
-            ForeColor = Color.FromArgb(146, 64, 14),
-            FlatStyle = FlatStyle.Flat,
-            Cursor = Cursors.Hand
-        };
-        btnSettings.FlatAppearance.BorderSize = 0;
-        btnSettings.Click += (s, e) => ShowUnifiedSettingsDialog();
-
         topBar.Controls.Add(lblCountdown);
-        topBar.Controls.Add(btnSettings);
-        topBar.Controls.Add(new Label { Dock = DockStyle.Right, Width = 6 });
         topBar.Controls.Add(btnActivate);
         topBar.Controls.Add(new Label { Dock = DockStyle.Right, Width = 6 });
         topBar.Controls.Add(btnDismiss);
@@ -315,8 +298,6 @@ public partial class Form1 : Form
             lblCountdown.ForeColor = Color.White;
             lblCountdown.Text = "✅ BẢN QUYỀN CHÍNH THỨC (VĨNH VIỄN) - HỆ THỐNG ĐÃ KÍCH HOẠT THÀNH CÔNG";
             btnActivate.Visible = false;
-            btnSettings.BackColor = Color.FromArgb(220, 252, 231);
-            btnSettings.ForeColor = Color.FromArgb(21, 128, 61);
             btnDismiss.ForeColor = Color.White;
             return;
         }
@@ -367,7 +348,7 @@ public partial class Form1 : Form
                 "<b>Để mở khóa sử dụng vĩnh viễn:</b><br/>" +
                 "1. Hoàn tất nghiệm thu & thanh toán với nhà phát triển.<br/>" +
                 "2. Nhận <b>Mã kích hoạt bản quyền chính thức</b>.<br/>" +
-                "3. Bấm vào nút <b>[⚙️ Cài Đặt (F2)]</b> hoặc <b>[🔑 Mã Bản Quyền]</b> để mở khóa ngay lập tức." +
+                "3. Bấm vào nút <b>[🔑 Mã Bản Quyền]</b> hoặc bấm phím <b>F2</b> để mở khóa ngay lập tức." +
                 "</div>" +
                 "</div>" +
                 "</body></html>"
@@ -478,7 +459,7 @@ public partial class Form1 : Form
                         $"<p style='font-size:14px;color:#64748b;line-height:1.6;margin:0 0 20px;'>Địa chỉ máy chủ đang thử kết nối: <br><strong style='color:#0f172a;word-break:break-all;'>{currentServerUrl}</strong></p>" +
                         "<div style='display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:16px;'>" +
                         "<button onclick=\"window.chrome.webview.postMessage('retry_local')\" style='background:#0284c7;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;'>🔄 Kết Nối Máy Chủ Cục Bộ (Localhost)</button>" +
-                        "<button onclick=\"window.chrome.webview.postMessage('open_settings')\" style='background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;'>⚙️ Cài Đặt (F2)</button>" +
+                        "<button onclick=\"window.chrome.webview.postMessage('open_settings')\" style='background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;'>⚙️ Cài Đặt Máy Chủ</button>" +
                         "</div>" +
                         "<p style='font-size:12.5px;color:#94a3b8;margin:0;'>Mẹo: Bấm <b>F2</b> trên bàn phím bất kỳ lúc nào để mở bảng Cài đặt nhanh.</p>" +
                         "</div>" +

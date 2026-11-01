@@ -46,7 +46,7 @@ export const translations = {
     lang_vi: "🇻🇳 Tiếng Việt",
     lang_en: "🇬🇧 English",
     lang_ko: "🇰🇷 한국어",
-    desktop_settings_btn: "⚙️ Mở Cài Đặt Ứng Dụng Desktop Nâng Cao (F2)",
+    desktop_settings_btn: "⚙️ Mở Cài Đặt Ứng Dụng Desktop Nâng Cao",
     done_btn: "Hoàn tất",
 
     // Dashboard
@@ -163,7 +163,7 @@ export const translations = {
     lang_vi: "🇻🇳 Tiếng Việt (Vietnamese)",
     lang_en: "🇬🇧 English",
     lang_ko: "🇰🇷 한국어 (Korean)",
-    desktop_settings_btn: "⚙️ Open Advanced Desktop App Settings (F2)",
+    desktop_settings_btn: "⚙️ Open Advanced Desktop App Settings",
     done_btn: "Done",
 
     // Dashboard
@@ -280,7 +280,7 @@ export const translations = {
     lang_vi: "🇻🇳 Tiếng Việt (베트남어)",
     lang_en: "🇬🇧 English (영어)",
     lang_ko: "🇰🇷 한국어 (Korean)",
-    desktop_settings_btn: "⚙️ 데스크톱 고급 설정 열기 (F2)",
+    desktop_settings_btn: "⚙️ 데스크톱 고급 설정 열기",
     done_btn: "완료",
 
     // Dashboard
