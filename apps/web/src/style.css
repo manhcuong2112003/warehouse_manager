@@ -35,8 +35,14 @@ p {
   min-height: 100vh;
 }
 .sidebar {
-  position: relative !important;
+  position: sticky !important;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
   background: #102e49 !important;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
 }
 .brand {
   display: flex;
@@ -88,9 +94,9 @@ p {
   background: #235671 !important;
 }
 .sidebar-note {
-  position: absolute;
-  bottom: 27px;
-  padding: 0 24px;
+  position: static;
+  margin-top: auto;
+  padding: 24px 24px 27px;
   color: #c4d5e1;
   font-size: 12px;
   line-height: 2;

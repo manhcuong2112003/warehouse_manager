@@ -22,15 +22,17 @@ import {
   ExportOutlined,
   SunOutlined,
   MoonOutlined,
+  TableOutlined,
 } from "@ant-design/icons";
 import { api, post, setCsrf } from "./api";
-import { Dashboard, Inventory, Catalog, Outbound } from "./pages/operations";
+import { Dashboard, Inventory, Catalog, Outbound, OutboundMatrixPage } from "./pages/operations";
 import { Inbound } from "./pages/inbound";
 import { Imports } from "./pages/imports";
 import { Reports } from "./pages/reports";
 import { Users } from "./pages/users";
 const entries = [
   { key: "dashboard", label: "Tổng quan", icon: <DashboardOutlined /> },
+  { key: "matrix", label: "Ma trận tồn & xuất", icon: <TableOutlined /> },
   { key: "inventory", label: "Tồn kho", icon: <InboxOutlined /> },
   { key: "inbound", label: "Quét nhập kho", icon: <ScanOutlined /> },
   { key: "outbound", label: "Xuất kho FEFO", icon: <ExportOutlined /> },
@@ -237,6 +239,8 @@ export function WmsApp() {
             <div key={`${page}:${warehouse}`}>
               {page === "dashboard" ? (
                 <Dashboard {...props} />
+              ) : page === "matrix" ? (
+                <OutboundMatrixPage {...props} />
               ) : page === "inventory" ? (
                 <Inventory {...props} />
               ) : page === "inbound" ? (

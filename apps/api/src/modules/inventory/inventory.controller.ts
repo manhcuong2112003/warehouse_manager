@@ -109,6 +109,13 @@ export class InventoryController {
       b,
     );
   }
+  @Get("outbound/operators") async operators() {
+    return (
+      await this.db.pool.query(
+        "SELECT id, username, display_name, role FROM users WHERE active = true ORDER BY display_name, username",
+      )
+    ).rows;
+  }
   @Get("outbound/orders") async orders(
     @Req() req: any,
     @Query("warehouseId") id: string,
@@ -117,8 +124,15 @@ export class InventoryController {
     scope(req.actor, id);
     return (
       await this.db.pool.query(
-        `SELECT o.*,json_agg(json_build_object('id',l.id,'product_id',l.product_id,'part_no',p.part_no,'quantity',l.quantity)) AS lines
-      FROM outbound_orders o JOIN outbound_lines l ON l.order_id=o.id JOIN products p ON p.id=l.product_id WHERE o.warehouse_id=$1 GROUP BY o.id ORDER BY o.created_at DESC LIMIT 100`,
+        `SELECT o.*, u.display_name AS actor_name, u.username AS actor_username,
+         json_agg(json_build_object('id',l.id,'product_id',l.product_id,'part_no',p.part_no,'quantity',l.quantity)) AS lines
+       FROM outbound_orders o 
+       JOIN outbound_lines l ON l.order_id=o.id 
+       JOIN products p ON p.id=l.product_id 
+       LEFT JOIN users u ON u.id=o.actor_id
+       WHERE o.warehouse_id=$1 
+       GROUP BY o.id, u.display_name, u.username 
+       ORDER BY o.created_at DESC LIMIT 100`,
         [id],
       )
     ).rows;

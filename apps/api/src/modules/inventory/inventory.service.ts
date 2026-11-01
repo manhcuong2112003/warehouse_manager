@@ -168,6 +168,7 @@ export class InventoryService {
       z.object({
         warehouseId: uuid,
         reference: text,
+        operatorId: uuid.optional(),
         lines: z
           .array(z.object({ productId: uuid, quantity }))
           .min(1)
@@ -187,7 +188,7 @@ export class InventoryService {
         const o = (
           await c.query(
             "INSERT INTO outbound_orders(warehouse_id,reference,actor_id) VALUES($1,$2,$3) RETURNING *",
-            [b.warehouseId, b.reference, actor.id],
+            [b.warehouseId, b.reference, b.operatorId || actor.id],
           )
         ).rows[0];
         for (const l of b.lines)
@@ -340,10 +341,11 @@ export class InventoryService {
               "STOCK_CONFLICT",
               "Số dư hoặc trạng thái pack đã thay đổi.",
             );
-            if (action === "ship")
+            if (action === "ship") {
+              const shipActor = o.actor_id ? { ...actor, id: o.actor_id } : actor;
               await this.movement(
                 c,
-                actor,
+                shipActor,
                 pack,
                 -qty,
                 Number(changed.rows[0].on_hand),
@@ -351,6 +353,7 @@ export class InventoryService {
                 "OUTBOUND_ORDER",
                 id,
               );
+            }
           }
           await c.query(
             "UPDATE stock_reservations SET status=$2,updated_at=now() WHERE outbound_line_id=ANY($1::uuid[]) AND status='ACTIVE'",
