@@ -784,23 +784,41 @@ export class ImportService {
             "Cần quyền quản trị.",
             403,
           );
+          const committedInThisJob = new Set<string>();
           for (const row of valid) {
             const n = row.normalized;
             let r;
             if (j.kind === "PRODUCTS") {
-              const current = (
-                await c.query(
-                  "SELECT * FROM products WHERE part_no=$1 FOR UPDATE",
-                  [n.part_no],
-                )
-              ).rows[0];
-              ensure(
-                current
-                  ? String(current.version) === String(row.expected_version)
-                  : row.expected_version === null,
-                "PREVIEW_STALE",
-                "Sản phẩm đã thay đổi sau preview.",
-              );
+              const current = n.part_no
+                ? (
+                    await c.query(
+                      "SELECT * FROM products WHERE part_no=$1 FOR UPDATE",
+                      [n.part_no],
+                    )
+                  ).rows[0]
+                : (
+                    await c.query(
+                      "SELECT * FROM products WHERE part_no IS NULL AND specification=$1 FOR UPDATE",
+                      [n.specification],
+                    )
+                  ).rows[0];
+
+              const isRepeatedInThisJob = n.part_no
+                ? committedInThisJob.has(n.part_no)
+                : committedInThisJob.has("NOCODE:" + n.specification);
+
+              if (!isRepeatedInThisJob && !n.is_duplicate) {
+                ensure(
+                  current
+                    ? String(current.version) === String(row.expected_version)
+                    : row.expected_version === null,
+                  "PREVIEW_STALE",
+                  "Sản phẩm đã thay đổi sau preview. Hãy bấm 'Kiểm tra dữ liệu' lại để làm mới trước khi xác nhận.",
+                );
+              }
+
+              if (n.part_no) committedInThisJob.add(n.part_no);
+              else committedInThisJob.add("NOCODE:" + n.specification);
               if (current && current.base_uom !== n.base_uom)
                 ensure(
                   !(
