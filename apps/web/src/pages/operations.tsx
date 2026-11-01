@@ -1217,7 +1217,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
                 </span>
               ),
             },
-            ...(matrixData.dates || []).map((d: any) => ({
+            ...(matrixData?.dates || []).map((d: any) => ({
               title: (
                 <div style={{ textAlign: "center", fontSize: 12 }}>
                   <div>{d.date.slice(5)}</div>

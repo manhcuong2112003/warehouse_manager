@@ -52,27 +52,31 @@ export class ReportService {
     validate(uuid, warehouse);
     scope(actor, warehouse);
     return this.db.transaction(async (c) => {
-      const dayNamesVi = ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
-      const dates: { date: string; dayName: string; label: string }[] = [];
-      const now = new Date();
-      for (let i = daysCount - 1; i >= 0; i--) {
-        const d = new Date(now);
-        d.setDate(d.getDate() - i);
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, "0");
-        const dd = String(d.getDate()).padStart(2, "0");
-        const dateStr = `${yyyy}-${mm}-${dd}`;
-        const dayOfWeek = d.getDay();
-        const dayName = dayNamesVi[dayOfWeek];
-        dates.push({
-          date: dateStr,
-          dayName,
-          label: `${dd}/${mm} (${dayName})`,
-        });
-      }
+      const dateRows = (
+        await c.query(
+          `SELECT 
+            (d::date)::text AS date_str, 
+            EXTRACT(DOW FROM d)::int AS dow,
+            to_char(d, 'DD/MM') AS dd_mm
+           FROM generate_series(
+             (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - ($1::int - 1), 
+             (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date, 
+             '1 day'::interval
+           ) d 
+           ORDER BY d ASC`,
+          [daysCount],
+        )
+      ).rows;
 
-      const startDate = dates[0].date;
-      const finishDate = dates[dates.length - 1].date;
+      const dayNamesVi = ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
+      const dates = dateRows.map((r: any) => ({
+        date: r.date_str,
+        dayName: dayNamesVi[r.dow],
+        label: `${r.dd_mm} (${dayNamesVi[r.dow]})`,
+      }));
+
+      const startDate = dates[0]?.date || new Date().toISOString().slice(0, 10);
+      const finishDate = dates[dates.length - 1]?.date || startDate;
 
       const movements = (
         await c.query(
@@ -110,8 +114,10 @@ export class ReportService {
             COALESCE(sum(b.on_hand - b.reserved) FILTER(WHERE b.status='AVAILABLE' AND b.expired_date > (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date), 0) AS available,
             max(b.updated_at) AS last_stock_update
            FROM products p
-           LEFT JOIN stock_pack_balances b ON b.product_id = p.id
-           LEFT JOIN locations l ON l.id = b.location_id AND l.warehouse_id = $1
+           LEFT JOIN (
+             stock_pack_balances b 
+             JOIN locations l ON l.id = b.location_id AND l.warehouse_id = $1
+           ) ON b.product_id = p.id
            GROUP BY p.id, p.part_no, p.specification, p.model, p.finished_goods_code, p.base_uom
            ORDER BY on_hand DESC, p.part_no`,
           [warehouse],
