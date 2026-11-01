@@ -389,33 +389,6 @@ export function WmsApp() {
           </div>
         </div>
 
-        <div style={{ marginBottom: 22 }}>
-          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>
-            {t("settings_theme_title")}
-          </div>
-          <Segmented
-            value={isDarkTheme ? "dark" : "light"}
-            onChange={(v) => {
-              const dark = v === "dark";
-              setIsDarkTheme(dark);
-              if ((window as any).__toggleTheme) {
-                (window as any).__toggleTheme(dark);
-              } else {
-                localStorage.setItem("wms_dark", String(dark));
-                window.dispatchEvent(
-                  new CustomEvent("wms-theme-change", {
-                    detail: { isDark: dark },
-                  }),
-                );
-              }
-            }}
-            options={[
-              { label: t("theme_light"), value: "light" },
-              { label: t("theme_dark"), value: "dark" },
-            ]}
-            block
-          />
-        </div>
 
         {(window as any).chrome?.webview && (
           <div
