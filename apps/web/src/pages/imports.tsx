@@ -112,7 +112,11 @@ export function Imports({ warehouse, user }: PageProps) {
     api("/imports/profiles").then(setProfiles);
   }, []);
 
-  const getSmartMapping = (fieldsList: string[], headerCells: any[]) => {
+  const getSmartMapping = (
+    fieldsList: string[],
+    headerCells: any[],
+    previewRows?: any[][],
+  ) => {
     const map: Record<string, number> = {};
     const normHeaders = (headerCells || []).map((c: any, i: number) => ({
       index: i,
@@ -195,21 +199,37 @@ export function Imports({ warehouse, user }: PageProps) {
         );
         if (found) map[f] = found.index;
       } else if (f === "quantity") {
-        const foundDate = [...normHeaders].reverse().find((h) =>
-          /\d{1,2}-(oct|nov|dec|jan|feb|mar|apr|may|jun|jul|aug|sep)/i.test(
-            h.text,
-          ),
+        // Tìm các cột chứa ngày tháng hoặc chữ số lượng / tồn
+        const candidateCols = normHeaders.filter(
+          (h) =>
+            /\d{4}-\d{2}-\d{2}/.test(h.raw) ||
+            /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(h.raw) ||
+            /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(h.text) ||
+            /\d{1,2}\/\d{1,2}/.test(h.text) ||
+            h.text.includes("tồn") ||
+            h.text.includes("số lượng") ||
+            h.text.includes("qty") ||
+            h.text.includes("수량"),
         );
-        const found =
-          foundDate ||
-          normHeaders.find(
-            (h) =>
-              h.text.includes("tồn") ||
-              h.text.includes("số lượng") ||
-              h.text.includes("qty") ||
-              h.text.includes("수량"),
+        let chosenCol: any = null;
+        if (previewRows && previewRows.length) {
+          chosenCol = [...candidateCols].reverse().find((c) =>
+            previewRows.some((row) => {
+              const val = row[c.index]?.value;
+              return (
+                typeof val === "number" ||
+                (val !== null &&
+                  val !== undefined &&
+                  val !== "" &&
+                  !isNaN(Number(String(val).replace(/[,.\s]/g, ""))))
+              );
+            }),
           );
-        if (found) map[f] = found.index;
+        }
+        if (!chosenCol && candidateCols.length) {
+          chosenCol = candidateCols[candidateCols.length - 1];
+        }
+        if (chosenCol) map[f] = chosenCol.index;
       } else if (f === "expired_date") {
         const found = normHeaders.find(
           (h) =>
@@ -264,7 +284,11 @@ export function Imports({ warehouse, user }: PageProps) {
       setMapping(j.mapping);
     } else {
       const curHeaders = firstSheet?.preview[initialOptions.headerRow - 1] || [];
-      const autoMap = getSmartMapping(j.fields, curHeaders);
+      const autoMap = getSmartMapping(
+        j.fields,
+        curHeaders,
+        firstSheet?.preview?.slice(initialOptions.headerRow),
+      );
       setMapping(autoMap);
     }
     confirmKey.current = crypto.randomUUID();
@@ -534,7 +558,11 @@ export function Imports({ warehouse, user }: PageProps) {
                       onChange={(headerRow) => {
                         const hr = headerRow || 1;
                         const curHeaders = sheet?.preview[hr - 1] || [];
-                        const autoMap = getSmartMapping(job.fields, curHeaders);
+                        const autoMap = getSmartMapping(
+                          job.fields,
+                          curHeaders,
+                          sheet?.preview?.slice(hr),
+                        );
                         setOptions({ ...options, headerRow: hr });
                         setMapping(autoMap);
                       }}
@@ -611,10 +639,27 @@ export function Imports({ warehouse, user }: PageProps) {
                         allowClear
                         placeholder="Chọn cột trong file"
                         value={mapping[field]}
-                        options={headers.map((c: any, i: number) => ({
-                          value: i,
-                          label: `${i + 1}. ${c.value || "(trống)"}`,
-                        }))}
+                        options={headers.map((c: any, i: number) => {
+                          let labelText = String(c?.value ?? "");
+                          if (
+                            labelText.includes("T00:00:00.000Z") ||
+                            labelText.includes("GMT+")
+                          ) {
+                            const d = new Date(labelText);
+                            if (!isNaN(d.getTime())) {
+                              const dd = String(d.getDate()).padStart(2, "0");
+                              const mm = String(d.getMonth() + 1).padStart(
+                                2,
+                                "0",
+                              );
+                              labelText = `Ngày ${dd}/${mm}/${d.getFullYear()}`;
+                            }
+                          }
+                          return {
+                            value: i,
+                            label: `${i + 1}. ${labelText || "(trống)"}`,
+                          };
+                        })}
                         onChange={(v) =>
                           setMapping((m) => {
                             const n = { ...m };
