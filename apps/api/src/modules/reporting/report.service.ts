@@ -47,6 +47,185 @@ export class ReportService {
       return { asOf, timezone: "Asia/Ho_Chi_Minh", units, days, activity };
     }, true);
   }
+
+  async outboundMatrix(actor: Actor, warehouse: string, daysCount: number = 7) {
+    validate(uuid, warehouse);
+    scope(actor, warehouse);
+    return this.db.transaction(async (c) => {
+      const dayNamesVi = ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
+      const dates: { date: string; dayName: string; label: string }[] = [];
+      const now = new Date();
+      for (let i = daysCount - 1; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        const dateStr = `${yyyy}-${mm}-${dd}`;
+        const dayOfWeek = d.getDay();
+        const dayName = dayNamesVi[dayOfWeek];
+        dates.push({
+          date: dateStr,
+          dayName,
+          label: `${dd}/${mm} (${dayName})`,
+        });
+      }
+
+      const startDate = dates[0].date;
+      const finishDate = dates[dates.length - 1].date;
+
+      const movements = (
+        await c.query(
+          `SELECT 
+            m.product_id,
+            (m.effective_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date::text AS day,
+            sum(-m.quantity_delta) AS outbound_qty,
+            u.display_name AS actor_name,
+            u.username AS actor_username,
+            max(m.effective_at) AS last_time
+           FROM stock_movements m
+           JOIN locations l ON l.id = m.location_id
+           JOIN users u ON u.id = m.actor_id
+           WHERE l.warehouse_id = $1 
+             AND m.movement_type = 'OUTBOUND'
+             AND (m.effective_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date >= $2::date
+             AND (m.effective_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date <= $3::date
+           GROUP BY m.product_id, 2, u.display_name, u.username
+           ORDER BY last_time DESC`,
+          [warehouse, startDate, finishDate],
+        )
+      ).rows;
+
+      const products = (
+        await c.query(
+          `SELECT 
+            p.id,
+            p.part_no,
+            p.specification,
+            p.model,
+            p.finished_goods_code,
+            p.base_uom,
+            COALESCE(sum(b.on_hand), 0) AS on_hand,
+            COALESCE(sum(b.reserved), 0) AS reserved,
+            COALESCE(sum(b.on_hand - b.reserved) FILTER(WHERE b.status='AVAILABLE' AND b.expired_date > (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date), 0) AS available,
+            max(b.updated_at) AS last_stock_update
+           FROM products p
+           LEFT JOIN stock_pack_balances b ON b.product_id = p.id
+           LEFT JOIN locations l ON l.id = b.location_id AND l.warehouse_id = $1
+           GROUP BY p.id, p.part_no, p.specification, p.model, p.finished_goods_code, p.base_uom
+           ORDER BY on_hand DESC, p.part_no`,
+          [warehouse],
+        )
+      ).rows;
+
+      const items = products.map((p) => {
+        const prodMovements = movements.filter((m) => m.product_id === p.id);
+        const dailyOutbound: Record<string, number> = {};
+        let totalOutbound = 0;
+        let lastOutboundAt = null;
+        let lastOutboundBy = null;
+
+        for (const m of prodMovements) {
+          const qty = Number(m.outbound_qty || 0);
+          dailyOutbound[m.day] = (dailyOutbound[m.day] || 0) + qty;
+          totalOutbound += qty;
+          if (!lastOutboundAt || new Date(m.last_time) > new Date(lastOutboundAt)) {
+            lastOutboundAt = m.last_time;
+            lastOutboundBy = m.actor_name || m.actor_username;
+          }
+        }
+
+        return {
+          id: p.id,
+          partNo: p.part_no,
+          specification: p.specification,
+          model: p.model,
+          finishedGoodsCode: p.finished_goods_code,
+          baseUom: p.base_uom,
+          onHand: Number(p.on_hand),
+          reserved: Number(p.reserved),
+          available: Number(p.available),
+          dailyOutbound,
+          totalOutbound,
+          lastOutboundAt,
+          lastOutboundBy,
+          lastUpdated: p.last_stock_update || lastOutboundAt || null,
+        };
+      });
+
+      return { dates, items };
+    }, true);
+  }
+
+  async productDetail(actor: Actor, productId: string, warehouse: string) {
+    validate(uuid, productId);
+    validate(uuid, warehouse);
+    scope(actor, warehouse);
+    return this.db.transaction(async (c) => {
+      const product = (
+        await c.query(
+          `SELECT id, part_no, specification, model, finished_goods_code, base_uom, default_vendor_code, created_at
+           FROM products WHERE id=$1`,
+          [productId],
+        )
+      ).rows[0];
+      ensure(product, "NOT_FOUND", "Không tìm thấy sản phẩm.", 404);
+
+      const stockSummary = (
+        await c.query(
+          `SELECT 
+            COALESCE(sum(b.on_hand), 0) AS on_hand,
+            COALESCE(sum(b.reserved), 0) AS reserved,
+            COALESCE(sum(b.on_hand - b.reserved) FILTER(WHERE b.status='AVAILABLE' AND b.expired_date > (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date), 0) AS available,
+            COALESCE(sum(b.on_hand) FILTER(WHERE b.expired_date <= (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date), 0) AS expired,
+            count(b.id) AS packs_count
+           FROM stock_pack_balances b
+           JOIN locations l ON l.id = b.location_id
+           WHERE b.product_id = $1 AND l.warehouse_id = $2`,
+          [productId, warehouse],
+        )
+      ).rows[0];
+
+      const packs = (
+        await c.query(
+          `SELECT b.id, b.mes_pack_no, b.lot_no, l.code AS location_code, l.name AS location_name,
+                  b.on_hand, b.reserved, b.expired_date, b.status, b.created_at, b.updated_at
+           FROM stock_pack_balances b
+           JOIN locations l ON l.id = b.location_id
+           WHERE b.product_id = $1 AND l.warehouse_id = $2
+           ORDER BY b.expired_date ASC, b.created_at ASC`,
+          [productId, warehouse],
+        )
+      ).rows;
+
+      const recentMovements = (
+        await c.query(
+          `SELECT m.id, m.movement_type, m.quantity_delta, m.balance_after, m.effective_at,
+                  m.reference_type, u.display_name AS actor_name, u.username AS actor_username,
+                  l.code AS location_code
+           FROM stock_movements m
+           JOIN locations l ON l.id = m.location_id
+           JOIN users u ON u.id = m.actor_id
+           WHERE m.product_id = $1 AND l.warehouse_id = $2
+           ORDER BY m.effective_at DESC, m.created_at DESC LIMIT 30`,
+          [productId, warehouse],
+        )
+      ).rows;
+
+      return {
+        product,
+        stockSummary: {
+          onHand: Number(stockSummary.on_hand),
+          reserved: Number(stockSummary.reserved),
+          available: Number(stockSummary.available),
+          expired: Number(stockSummary.expired),
+          packsCount: Number(stockSummary.packs_count),
+        },
+        packs,
+        recentMovements,
+      };
+    }, true);
+  }
   async query(
     actor: Actor,
     type: string,

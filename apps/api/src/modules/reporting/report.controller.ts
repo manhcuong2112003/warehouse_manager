@@ -22,6 +22,20 @@ export class ReportController {
   ) {
     return this.reports.dashboard(req.actor, id);
   }
+  @Get("outbound-matrix") outboundMatrix(
+    @Req() req: any,
+    @Query("warehouseId") id: string,
+    @Query("days") days?: string,
+  ) {
+    return this.reports.outboundMatrix(req.actor, id, Number(days || 7));
+  }
+  @Get("product-detail/:id") productDetail(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Query("warehouseId") warehouseId: string,
+  ) {
+    return this.reports.productDetail(req.actor, id, warehouseId);
+  }
   @Get(":type/export") async export(
     @Req() req: any,
     @Param("type") type: string,

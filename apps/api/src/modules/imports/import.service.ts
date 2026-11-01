@@ -31,6 +31,7 @@ export const fields: Record<string, string[]> = {
     "specification",
     "model",
     "finished_goods_code",
+    "quantity",
     "base_uom",
     "vendor_code",
   ],
@@ -438,6 +439,30 @@ export class ImportService {
                 n.part_no = null;
                 n.is_missing_code = true;
               }
+
+              // Tự động bỏ qua dòng tiêu đề phụ nếu lọt vào
+              if (
+                rawPart.toLowerCase().includes("code") ||
+                rawPart.includes("품번") ||
+                (n.specification &&
+                  (n.specification.includes("자재명") ||
+                    n.specification.includes("Tên vật liệu")))
+              ) {
+                continue;
+              }
+
+              if (
+                n.quantity !== undefined &&
+                n.quantity !== null &&
+                n.quantity !== ""
+              ) {
+                const cleaned = String(n.quantity).replace(/[,.\s]/g, "");
+                const parsed = Number(cleaned);
+                if (!isNaN(parsed)) {
+                  n.quantity = parsed;
+                  warnings.push(`Đồng bộ số lượng tồn kho: ${parsed} ${n.base_uom || "PCS"}.`);
+                }
+              }
             }
 
             if (!n[key] && !n[nameKey]) {
@@ -785,6 +810,32 @@ export class ImportService {
             403,
           );
           const committedInThisJob = new Set<string>();
+
+          let defaultLocationId: string | null = null;
+          const hasQuantity = valid.some(
+            (row) =>
+              row.normalized.quantity !== undefined &&
+              row.normalized.quantity !== null &&
+              row.normalized.quantity !== "" &&
+              Number(row.normalized.quantity) >= 0,
+          );
+
+          if (j.kind === "PRODUCTS" && hasQuantity) {
+            const locResult = await c.query(
+              "SELECT id FROM locations WHERE warehouse_id=$1 ORDER BY code ASC LIMIT 1",
+              [j.warehouse_id],
+            );
+            if (locResult.rowCount) {
+              defaultLocationId = locResult.rows[0].id;
+            } else {
+              const newLoc = await c.query(
+                "INSERT INTO locations(warehouse_id,code,name) VALUES($1, 'KHO-TONG', 'Kho tổng') RETURNING id",
+                [j.warehouse_id],
+              );
+              defaultLocationId = newLoc.rows[0].id;
+            }
+          }
+
           for (const row of valid) {
             const n = row.normalized;
             let r;
@@ -907,6 +958,96 @@ export class ImportService {
                       n.finished_goods_code || null,
                     ],
                   );
+                }
+              }
+
+              const productId = r?.rows?.[0]?.id;
+              if (
+                productId &&
+                defaultLocationId &&
+                n.quantity !== undefined &&
+                n.quantity !== null &&
+                n.quantity !== ""
+              ) {
+                const targetQty = Number(n.quantity);
+                if (!isNaN(targetQty) && targetQty >= 0) {
+                  const vendorCode = n.vendor_code || "GENERIC";
+                  const vCheck = await c.query(
+                    "SELECT code FROM vendors WHERE code=$1",
+                    [vendorCode],
+                  );
+                  if (!vCheck.rowCount) {
+                    await c.query(
+                      "INSERT INTO vendors(code, name) VALUES($1, $2) ON CONFLICT (code) DO NOTHING",
+                      [
+                        vendorCode,
+                        n.vendor_code
+                          ? `NCC ${n.vendor_code}`
+                          : "Nhà cung cấp chung",
+                      ],
+                    );
+                  }
+
+                  const existingPack = await c.query(
+                    "SELECT id, on_hand FROM stock_pack_balances WHERE product_id=$1 AND location_id=$2 AND status='AVAILABLE' ORDER BY created_at ASC LIMIT 1 FOR UPDATE",
+                    [productId, defaultLocationId],
+                  );
+
+                  if (existingPack.rowCount) {
+                    const packId = existingPack.rows[0].id;
+                    const oldQty = Number(existingPack.rows[0].on_hand);
+                    const delta = targetQty - oldQty;
+                    if (delta !== 0) {
+                      await c.query(
+                        "UPDATE stock_pack_balances SET on_hand=$2, version=version+1, updated_at=now() WHERE id=$1",
+                        [packId, targetQty],
+                      );
+                      await this.inventory.movement(
+                        c,
+                        actor,
+                        packId,
+                        delta,
+                        targetQty,
+                        delta > 0 ? "INBOUND" : "ADJUSTMENT",
+                        "IMPORT_JOB",
+                        id,
+                      );
+                    }
+                  } else if (targetQty > 0) {
+                    const todayStr = new Date()
+                      .toISOString()
+                      .slice(0, 10)
+                      .replace(/-/g, "");
+                    const cleanCode = (n.part_no || "SP").replace(
+                      /[^a-zA-Z0-9]/g,
+                      "",
+                    );
+                    const mesPackNo = `PK-${cleanCode.slice(0, 15)}-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`;
+                    const packRow = (
+                      await c.query(
+                        `INSERT INTO stock_pack_balances(product_id, location_id, lot_no, mes_pack_no, vendor_code, expired_date, on_hand, status)
+                         VALUES($1, $2, $3, $4, $5, '2099-12-31', $6, 'AVAILABLE') RETURNING id`,
+                        [
+                          productId,
+                          defaultLocationId,
+                          `LOT-${todayStr}`,
+                          mesPackNo,
+                          vendorCode,
+                          targetQty,
+                        ],
+                      )
+                    ).rows[0];
+                    await this.inventory.movement(
+                      c,
+                      actor,
+                      packRow.id,
+                      targetQty,
+                      targetQty,
+                      "INBOUND",
+                      "IMPORT_JOB",
+                      id,
+                    );
+                  }
                 }
               }
             } else if (j.kind === "VENDORS") {
@@ -1093,6 +1234,47 @@ export class ImportService {
         [JSON.stringify(summary), jobId],
       );
       return { id: rowId, status: newStatus, summary };
+    });
+  }
+
+  async deleteJob(actor: Actor, id: string) {
+    await this.check(actor, id);
+    return this.db.transaction(async (c) => {
+      await c.query("DELETE FROM import_rows WHERE job_id=$1", [id]);
+      await c.query("DELETE FROM import_jobs WHERE id=$1", [id]);
+      return { success: true, id };
+    });
+  }
+
+  async cleanupJobs(
+    actor: Actor,
+    warehouseId: string,
+    onlyDrafts: boolean = true,
+  ) {
+    const { scope } = await import("../warehouse/access");
+    scope(actor, warehouseId);
+    return this.db.transaction(async (c) => {
+      const statusCondition = onlyDrafts ? "status != 'CONFIRMED'" : "TRUE";
+      const userCondition = actor.role === "ADMIN" ? "TRUE" : "actor_id = $2";
+      const params =
+        actor.role === "ADMIN" ? [warehouseId] : [warehouseId, actor.id];
+
+      const toDelete = (
+        await c.query(
+          `SELECT id FROM import_jobs WHERE warehouse_id=$1 AND ${statusCondition} AND ${userCondition}`,
+          params,
+        )
+      ).rows.map((r) => r.id);
+
+      if (toDelete.length > 0) {
+        await c.query("DELETE FROM import_rows WHERE job_id = ANY($1::uuid[])", [
+          toDelete,
+        ]);
+        await c.query("DELETE FROM import_jobs WHERE id = ANY($1::uuid[])", [
+          toDelete,
+        ]);
+      }
+      return { success: true, deletedCount: toDelete.length };
     });
   }
 }

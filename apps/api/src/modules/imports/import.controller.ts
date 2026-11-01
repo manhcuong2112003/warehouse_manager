@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Inject,
   Param,
@@ -124,6 +125,16 @@ export class ImportController {
       req.headers["idempotency-key"],
       b,
     );
+  }
+  @Delete(":id") deleteJob(@Req() req: any, @Param("id") id: string) {
+    return this.imports.deleteJob(req.actor, id);
+  }
+  @Delete() cleanupJobs(
+    @Req() req: any,
+    @Query("warehouseId") wh: string,
+    @Query("onlyDrafts") onlyDrafts?: string,
+  ) {
+    return this.imports.cleanupJobs(req.actor, wh, onlyDrafts === "true");
   }
   @Get(":id/errors.xlsx") async errors(
     @Req() req: any,

@@ -7,6 +7,7 @@ import {
   Checkbox,
   Input,
   InputNumber,
+  Modal,
   Popconfirm,
   Select,
   Space,
@@ -18,9 +19,29 @@ import {
   CloudUploadOutlined,
   DownloadOutlined,
   CheckCircleOutlined,
+  DeleteOutlined,
+  HistoryOutlined,
 } from "@ant-design/icons";
 import { api, post, params, fmt } from "../api";
 import type { PageProps } from "./operations";
+
+const fieldLabels: Record<string, string> = {
+  part_no: "Mã linh kiện (Code / 품번)",
+  specification: "Tên vật liệu / Quy cách (자재명)",
+  model: "Model sử dụng (사용 모델)",
+  finished_goods_code: "Code thành phẩm (완제품 품번)",
+  quantity: "Đồng bộ số lượng tồn kho (수량)",
+  base_uom: "Đơn vị tính (단위)",
+  vendor_code: "Mã nhà cung cấp (업체)",
+  code: "Mã danh mục",
+  name: "Tên danh mục",
+  lot_no: "Số lô (lot_no)",
+  mes_pack_no: "Mã pack / kiện (mes_pack_no)",
+  expired_date: "Hạn sử dụng (expired_date)",
+  status: "Trạng thái",
+  reference: "Mã chứng từ",
+  location_code: "Vị trí lưu kho",
+};
 const kinds = [
   { value: "PRODUCTS", label: "Danh mục sản phẩm" },
   { value: "VENDORS", label: "Nhà cung cấp" },
@@ -45,9 +66,37 @@ export function Imports({ warehouse, user }: PageProps) {
     [profiles, setProfiles] = useState<any[]>([]),
     [busy, setBusy] = useState(false),
     [rowBusy, setRowBusy] = useState<string | null>(null),
-    [ack, setAck] = useState(false);
+    [ack, setAck] = useState(false),
+    [historyModalOpen, setHistoryModalOpen] = useState(false);
   const file = useRef<HTMLInputElement>(null),
     confirmKey = useRef(crypto.randomUUID());
+
+  const deleteJob = async (id: string) => {
+    try {
+      await api(`/imports/${id}`, { method: "DELETE" });
+      message.success("Đã xóa lượt nhập thành công.");
+      if (job?.id === id) {
+        setJob(undefined);
+      }
+      refreshJobs();
+    } catch (e: any) {
+      message.error(e.message || "Không thể xóa lượt nhập.");
+    }
+  };
+
+  const cleanupJobs = async (onlyDrafts: boolean) => {
+    try {
+      const res = await api(
+        `/imports?${params({ warehouseId: warehouse, onlyDrafts: String(onlyDrafts) })}`,
+        { method: "DELETE" },
+      );
+      message.success(`Đã xóa ${res.deletedCount || 0} lượt nhập.`);
+      setJob(undefined);
+      refreshJobs();
+    } catch (e: any) {
+      message.error(e.message || "Lỗi khi xóa lịch sử.");
+    }
+  };
   const setMapping: typeof saveMapping = (value) => {
     setDirty(true);
     saveMapping(value);
@@ -146,13 +195,20 @@ export function Imports({ warehouse, user }: PageProps) {
         );
         if (found) map[f] = found.index;
       } else if (f === "quantity") {
-        const found = normHeaders.find(
-          (h) =>
-            h.text.includes("tồn") ||
-            h.text.includes("số lượng") ||
-            h.text.includes("qty") ||
-            h.text.includes("수량"),
+        const foundDate = [...normHeaders].reverse().find((h) =>
+          /\d{1,2}-(oct|nov|dec|jan|feb|mar|apr|may|jun|jul|aug|sep)/i.test(
+            h.text,
+          ),
         );
+        const found =
+          foundDate ||
+          normHeaders.find(
+            (h) =>
+              h.text.includes("tồn") ||
+              h.text.includes("số lượng") ||
+              h.text.includes("qty") ||
+              h.text.includes("수량"),
+          );
         if (found) map[f] = found.index;
       } else if (f === "expired_date") {
         const found = normHeaders.find(
@@ -302,7 +358,7 @@ export function Imports({ warehouse, user }: PageProps) {
   return (
     <>
       <Card className="section-bottom">
-        <div className="intro-row">
+        <div className="intro-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
           <div>
             <h2>Đưa dữ liệu sẵn có vào hệ thống</h2>
             <p>
@@ -310,15 +366,40 @@ export function Imports({ warehouse, user }: PageProps) {
               dòng, 5 MB mỗi file.
             </p>
           </div>
-          <Select
-            placeholder="Mở lượt nhập trước"
-            style={{ width: 280 }}
-            options={jobs.map((j) => ({
-              value: j.id,
-              label: `${j.file_name} · ${j.status}`,
-            }))}
-            onChange={async (id) => adopt(await api(`/imports/${id}`))}
-          />
+          <Space wrap>
+            <Select
+              placeholder="Mở lượt nhập trước"
+              style={{ width: 340 }}
+              value={job?.id}
+              options={jobs.map((j) => {
+                const timeStr = j.created_at
+                  ? new Date(j.created_at).toLocaleString("vi-VN", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : "";
+                const statusText =
+                  j.status === "COMPLETED"
+                    ? "Đã nhập"
+                    : j.status === "VALIDATED"
+                      ? "Đã kiểm tra"
+                      : "Bản nháp";
+                return {
+                  value: j.id,
+                  label: `${j.file_name} (${timeStr}) · ${statusText}`,
+                };
+              })}
+              onChange={async (id) => adopt(await api(`/imports/${id}`))}
+            />
+            <Button
+              icon={<HistoryOutlined />}
+              onClick={() => setHistoryModalOpen(true)}
+            >
+              Quản lý lịch sử ({jobs.length})
+            </Button>
+          </Space>
         </div>
         <Steps
           current={!job ? 0 : done ? 3 : job.status === "VALIDATED" ? 2 : 1}
@@ -393,9 +474,42 @@ export function Imports({ warehouse, user }: PageProps) {
           </div>
         ) : (
           <>
-            <div className="job-title">
-              <b>{job.file_name}</b>
-              <Tag color={done ? "green" : "blue"}>{job.status}</Tag>
+            <div
+              className="job-title"
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 8,
+              }}
+            >
+              <div>
+                <b>{job.file_name}</b>{" "}
+                <Tag color={done ? "green" : job.status === "VALIDATED" ? "blue" : "default"}>
+                  {job.status === "COMPLETED"
+                    ? "Đã nhập thành công"
+                    : job.status === "VALIDATED"
+                      ? "Đã kiểm tra"
+                      : "Bản nháp"}
+                </Tag>
+                {job.created_at && (
+                  <span className="muted" style={{ marginLeft: 8, fontSize: 13 }}>
+                    Tải lên lúc: {new Date(job.created_at).toLocaleString("vi-VN")}
+                  </span>
+                )}
+              </div>
+              <Popconfirm
+                title="Xóa lượt nhập này?"
+                description="Hệ thống sẽ xóa file nháp này khỏi danh sách."
+                onConfirm={() => deleteJob(job.id)}
+                okText="Xóa"
+                cancelText="Hủy"
+              >
+                <Button danger size="small" icon={<DeleteOutlined />}>
+                  Xóa lượt nhập này
+                </Button>
+              </Popconfirm>
             </div>
             {!done && (
               <>
@@ -479,11 +593,12 @@ export function Imports({ warehouse, user }: PageProps) {
                   description={
                     <div style={{ fontSize: 13, lineHeight: 1.6 }}>
                       <div><b>1. Hàng tiêu đề:</b> Hãy đặt là <b>2</b> (để nhận đúng các cột từ hàng 2 của file Excel).</div>
-                      <div><b>2. part_no (Mã linh kiện):</b> Chọn <b>Cột 5 (Code / 품번)</b> ví dụ <code>GH64-10383A-LA</code>. Tuyệt đối không chọn Cột 1 STT.</div>
+                      <div><b>2. part_no (Mã linh kiện):</b> Chọn <b>Cột 5 (Code / 품번)</b> ví dụ <code>GH64-10383A-LA</code>. Tuyệt đối không chọn Cột 1 STT. Với sản phẩm không có mã có thể để trống.</div>
                       <div><b>3. specification (Tên vật liệu):</b> Chọn <b>Cột 4 (Tên vật liệu / 자재명)</b> ví dụ <code>DECO RATION CAM LOWER</code>.</div>
                       <div><b>4. model (Model sử dụng):</b> Chọn <b>Cột 2 (Model sử dụng / 사용 모델)</b> ví dụ <code>SM-S741U (R14)</code>.</div>
                       <div><b>5. finished_goods_code (Code thành phẩm):</b> Chọn <b>Cột 3 (Code thành phẩm 완제품 품번)</b> ví dụ <code>GH98-51260A</code>.</div>
-                      <div><b>6. vendor_code / base_uom:</b> Nếu file không có, bấm dấu <b>✕ để bỏ trống</b>.</div>
+                      <div><b>6. quantity (Đồng bộ số lượng tồn):</b> Chọn cột ngày tồn bạn muốn cập nhật (ví dụ Cột 16: <code>30-Oct</code> hoặc Cột 17: <code>31-Oct</code>). Hệ thống sẽ tự động đồng bộ tồn kho thực tế vào WMS!</div>
+                      <div><b>7. vendor_code / base_uom:</b> Nếu file không có, bấm dấu <b>✕ để bỏ trống</b>.</div>
                     </div>
                   }
                   style={{ marginBottom: 16 }}
@@ -491,7 +606,7 @@ export function Imports({ warehouse, user }: PageProps) {
                 <div className="mapping-grid">
                   {job.fields.map((field: string) => (
                     <label key={field}>
-                      <span>{field}</span>
+                      <span style={{ fontWeight: 600 }}>{fieldLabels[field] || field}</span>
                       <Select
                         allowClear
                         placeholder="Chọn cột trong file"
@@ -782,6 +897,130 @@ export function Imports({ warehouse, user }: PageProps) {
           </>
         )}
       </Card>
+
+      <Modal
+        title="Quản lý lịch sử các lượt nhập file"
+        open={historyModalOpen}
+        onCancel={() => setHistoryModalOpen(false)}
+        footer={null}
+        width={850}
+      >
+        <div
+          style={{
+            marginBottom: 16,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 8,
+          }}
+        >
+          <span>
+            Tổng số lượt nhập lưu trong kho: <b>{jobs.length}</b>
+          </span>
+          <Space>
+            <Popconfirm
+              title="Dọn dẹp các bản nháp?"
+              description="Hệ thống sẽ xóa tất cả các lượt tải lên chưa được xác nhận nhập kho."
+              onConfirm={() => cleanupJobs(true)}
+              okText="Dọn dẹp"
+              cancelText="Hủy"
+            >
+              <Button danger icon={<DeleteOutlined />}>
+                Xóa tất cả bản nháp
+              </Button>
+            </Popconfirm>
+            {user.role === "ADMIN" && (
+              <Popconfirm
+                title="Xóa toàn bộ lịch sử?"
+                description="Bạn có chắc chắn muốn xóa hết tất cả các lượt nhập file (kể cả đã hoàn tất)?"
+                onConfirm={() => cleanupJobs(false)}
+                okText="Xóa tất cả"
+                cancelText="Hủy"
+              >
+                <Button danger type="primary">
+                  Xóa toàn bộ lịch sử
+                </Button>
+              </Popconfirm>
+            )}
+          </Space>
+        </div>
+        <Table
+          dataSource={jobs}
+          rowKey="id"
+          size="small"
+          pagination={{ pageSize: 8 }}
+          columns={[
+            {
+              title: "Tên file",
+              dataIndex: "file_name",
+              render: (t: string) => <b>{t}</b>,
+            },
+            {
+              title: "Loại nhập",
+              dataIndex: "kind",
+              render: (k: string) =>
+                kinds.find((item) => item.value === k)?.label || k,
+            },
+            {
+              title: "Thời gian tải lên",
+              dataIndex: "created_at",
+              render: (t: string) =>
+                t ? new Date(t).toLocaleString("vi-VN") : "—",
+            },
+            {
+              title: "Trạng thái",
+              dataIndex: "status",
+              render: (st: string) => (
+                <Tag
+                  color={
+                    st === "COMPLETED"
+                      ? "green"
+                      : st === "VALIDATED"
+                        ? "blue"
+                        : "default"
+                  }
+                >
+                  {st === "COMPLETED"
+                    ? "Đã nhập"
+                    : st === "VALIDATED"
+                      ? "Đã kiểm tra"
+                      : "Bản nháp"}
+                </Tag>
+              ),
+            },
+            {
+              title: "Thao tác",
+              key: "actions",
+              render: (_: any, record: any) => (
+                <Space>
+                  <Button
+                    size="small"
+                    type="link"
+                    onClick={async () => {
+                      setHistoryModalOpen(false);
+                      adopt(await api(`/imports/${record.id}`));
+                    }}
+                  >
+                    Mở lại
+                  </Button>
+                  <Popconfirm
+                    title="Xóa lượt nhập này?"
+                    description="Xóa vĩnh viễn lượt nhập này khỏi lịch sử?"
+                    onConfirm={() => deleteJob(record.id)}
+                    okText="Xóa"
+                    cancelText="Hủy"
+                  >
+                    <Button size="small" type="link" danger>
+                      Xóa
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              ),
+            },
+          ]}
+        />
+      </Modal>
     </>
   );
 }

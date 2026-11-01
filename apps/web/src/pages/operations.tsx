@@ -31,6 +31,7 @@ import {
   ReloadOutlined,
   SearchOutlined,
   FilterOutlined,
+  EyeOutlined,
 } from "@ant-design/icons";
 import { api, post, params, fmt } from "../api";
 export type PageProps = {
@@ -42,6 +43,14 @@ export function Dashboard({ warehouse, navigate }: PageProps) {
   const [data, setData] = useState<any>(),
     [error, setError] = useState(""),
     [unit, setUnit] = useState("");
+  const [matrixData, setMatrixData] = useState<any>({ dates: [], items: [] });
+  const [matrixLoading, setMatrixLoading] = useState(false);
+  const [matrixDays, setMatrixDays] = useState(7);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [productDetail, setProductDetail] = useState<any>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
   const load = () =>
     api(`/reports/dashboard?${params({ warehouseId: warehouse })}`)
       .then((d) => {
@@ -49,9 +58,32 @@ export function Dashboard({ warehouse, navigate }: PageProps) {
         setUnit((old) => old || d.units[0]?.base_uom || "PCS");
       })
       .catch((e) => setError(e.message));
+
+  const loadMatrix = () => {
+    setMatrixLoading(true);
+    api(
+      `/reports/outbound-matrix?${params({ warehouseId: warehouse, days: String(matrixDays) })}`,
+    )
+      .then(setMatrixData)
+      .catch((e) => console.error("Error loading outbound matrix:", e))
+      .finally(() => setMatrixLoading(false));
+  };
+
   useEffect(() => {
     load();
-  }, []);
+    loadMatrix();
+  }, [warehouse, matrixDays]);
+
+  const openProductDetail = (productId: string) => {
+    setDetailId(productId);
+    setDetailLoading(true);
+    api(
+      `/reports/product-detail/${productId}?${params({ warehouseId: warehouse })}`,
+    )
+      .then(setProductDetail)
+      .catch((e) => console.error("Error loading product detail:", e))
+      .finally(() => setDetailLoading(false));
+  };
   if (error) return <Alert type="error" message={error} />;
   const d = data?.units.find((u: any) => u.base_uom === unit) || {};
   const series = (data?.days || [])
@@ -61,6 +93,18 @@ export function Dashboard({ warehouse, navigate }: PageProps) {
       1,
       ...series.flatMap((v: any) => [Number(v.inbound), Number(v.outbound)]),
     );
+
+  const filteredMatrixItems = (matrixData?.items || []).filter((item: any) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (item.partNo && item.partNo.toLowerCase().includes(q)) ||
+      (item.specification && item.specification.toLowerCase().includes(q)) ||
+      (item.model && item.model.toLowerCase().includes(q)) ||
+      (item.finishedGoodsCode &&
+        item.finishedGoodsCode.toLowerCase().includes(q))
+    );
+  });
   return (
     <>
       <div className="intro-row">
@@ -194,6 +238,438 @@ export function Dashboard({ warehouse, navigate }: PageProps) {
           </Card>
         </Col>
       </Row>
+
+      <Card
+        title={
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <span style={{ fontSize: 16, fontWeight: 700 }}>
+              📊 Báo Cáo Tồn & Ma Trận Xuất Kho Theo Ngày
+            </span>
+            <Tag color="blue">Khớp mẫu Excel nhà máy</Tag>
+          </div>
+        }
+        extra={
+          <Space wrap>
+            <Input
+              prefix={<SearchOutlined />}
+              placeholder="Tìm mã / quy cách / model / TP..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ width: 260 }}
+              allowClear
+            />
+            <Select
+              value={matrixDays}
+              onChange={setMatrixDays}
+              options={[
+                { value: 7, label: "7 ngày gần nhất" },
+                { value: 14, label: "14 ngày gần nhất" },
+                { value: 30, label: "30 ngày gần nhất" },
+              ]}
+              style={{ width: 150 }}
+            />
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={loadMatrix}
+              loading={matrixLoading}
+            >
+              Tải lại
+            </Button>
+          </Space>
+        }
+        className="section-gap"
+      >
+        <Table
+          dataSource={filteredMatrixItems}
+          rowKey="id"
+          size="middle"
+          scroll={{ x: 1200 }}
+          loading={matrixLoading}
+          pagination={{ pageSize: 10, showSizeChanger: true }}
+          columns={[
+            {
+              title: "STT",
+              key: "stt",
+              width: 55,
+              align: "center",
+              render: (_: any, __: any, index: number) => index + 1,
+            },
+            {
+              title: "Model sử dụng",
+              dataIndex: "model",
+              width: 140,
+              render: (t: string) => (
+                <span style={{ fontWeight: 500 }}>{t || "—"}</span>
+              ),
+            },
+            {
+              title: "Code thành phẩm",
+              dataIndex: "finishedGoodsCode",
+              width: 140,
+              render: (t: string) => (t ? <code>{t}</code> : "—"),
+            },
+            {
+              title: "Tên vật liệu (Quy cách)",
+              dataIndex: "specification",
+              width: 220,
+              render: (t: string, r: any) => (
+                <a
+                  onClick={() => openProductDetail(r.id)}
+                  style={{ fontWeight: 600, color: "#1d4ed8" }}
+                >
+                  {t}
+                </a>
+              ),
+            },
+            {
+              title: "Mã linh kiện",
+              dataIndex: "partNo",
+              width: 160,
+              render: (t: string) =>
+                t ? (
+                  <code style={{ fontWeight: 600 }}>{t}</code>
+                ) : (
+                  <Tag
+                    color="warning"
+                    style={{ background: "#fef9c3", borderColor: "#fde047" }}
+                  >
+                    Chưa có mã
+                  </Tag>
+                ),
+            },
+            {
+              title: "Tồn hiện tại",
+              dataIndex: "onHand",
+              width: 120,
+              align: "right",
+              render: (n: number, r: any) => (
+                <span
+                  style={{
+                    fontWeight: 700,
+                    color: n > 0 ? "#0f172a" : "#94a3b8",
+                  }}
+                >
+                  {fmt(n)} {r.baseUom}
+                </span>
+              ),
+            },
+            ...(matrixData.dates || []).map((d: any) => ({
+              title: (
+                <div style={{ textAlign: "center", fontSize: 12 }}>
+                  <div>{d.date.slice(5)}</div>
+                  <div style={{ fontWeight: 700, color: "#2563eb" }}>
+                    {d.dayName}
+                  </div>
+                </div>
+              ),
+              key: d.date,
+              width: 95,
+              align: "right" as const,
+              render: (_: any, r: any) => {
+                const qty = r.dailyOutbound?.[d.date];
+                return qty > 0 ? (
+                  <Tag
+                    color="cyan"
+                    style={{
+                      fontWeight: 600,
+                      margin: 0,
+                      padding: "2px 6px",
+                    }}
+                  >
+                    {fmt(qty)}
+                  </Tag>
+                ) : (
+                  <span className="muted">0</span>
+                );
+              },
+            })),
+            {
+              title: "Tổng xuất",
+              dataIndex: "totalOutbound",
+              width: 100,
+              align: "right",
+              render: (n: number) =>
+                n > 0 ? (
+                  <b style={{ color: "#d97706" }}>{fmt(n)}</b>
+                ) : (
+                  <span className="muted">0</span>
+                ),
+            },
+            {
+              title: "Người xuất gần nhất",
+              dataIndex: "lastOutboundBy",
+              width: 140,
+              render: (t: string) => t || <span className="muted">—</span>,
+            },
+            {
+              title: "Cập nhật lúc",
+              dataIndex: "lastUpdated",
+              width: 130,
+              render: (t: string) =>
+                t ? (
+                  new Date(t).toLocaleString("vi-VN", {
+                    dateStyle: "short",
+                    timeStyle: "short",
+                  })
+                ) : (
+                  <span className="muted">—</span>
+                ),
+            },
+            {
+              title: "Thao tác",
+              key: "action",
+              fixed: "right" as const,
+              width: 80,
+              align: "center" as const,
+              render: (_: any, r: any) => (
+                <Button
+                  size="small"
+                  type="link"
+                  icon={<EyeOutlined />}
+                  onClick={() => openProductDetail(r.id)}
+                >
+                  Xem
+                </Button>
+              ),
+            },
+          ]}
+        />
+      </Card>
+
+      <Drawer
+        title="Chi tiết toàn diện sản phẩm & Lịch sử tồn kho"
+        placement="right"
+        width={720}
+        open={!!detailId}
+        onClose={() => {
+          setDetailId(null);
+          setProductDetail(null);
+        }}
+      >
+        {detailLoading || !productDetail ? (
+          <div style={{ padding: 40, textAlign: "center" }}>
+            Đang tải thông tin sản phẩm...
+          </div>
+        ) : (
+          <div>
+            <div
+              style={{
+                background: "#f8fafc",
+                padding: 16,
+                borderRadius: 8,
+                marginBottom: 16,
+              }}
+            >
+              <h3 style={{ margin: "0 0 8px 0" }}>
+                {productDetail.product.specification}
+              </h3>
+              <Space wrap size={[16, 8]}>
+                <div>
+                  <span className="muted">Mã linh kiện: </span>
+                  {productDetail.product.part_no ? (
+                    <code>{productDetail.product.part_no}</code>
+                  ) : (
+                    <Tag color="warning">Chưa có mã</Tag>
+                  )}
+                </div>
+                <div>
+                  <span className="muted">Model: </span>
+                  <b>{productDetail.product.model || "—"}</b>
+                </div>
+                <div>
+                  <span className="muted">Code thành phẩm: </span>
+                  <b>{productDetail.product.finished_goods_code || "—"}</b>
+                </div>
+                <div>
+                  <span className="muted">Đơn vị: </span>
+                  <b>{productDetail.product.base_uom}</b>
+                </div>
+                <div>
+                  <span className="muted">NCC mặc định: </span>
+                  <b>{productDetail.product.default_vendor_code || "—"}</b>
+                </div>
+              </Space>
+            </div>
+
+            <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+              <Col span={6}>
+                <Card size="small" style={{ textAlign: "center" }}>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    Tồn vật lý
+                  </div>
+                  <b style={{ fontSize: 18, color: "#1e293b" }}>
+                    {fmt(productDetail.stockSummary.onHand)}
+                  </b>
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small" style={{ textAlign: "center" }}>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    Khả dụng
+                  </div>
+                  <b style={{ fontSize: 18, color: "#16a34a" }}>
+                    {fmt(productDetail.stockSummary.available)}
+                  </b>
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small" style={{ textAlign: "center" }}>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    Đang giữ
+                  </div>
+                  <b style={{ fontSize: 18, color: "#d97706" }}>
+                    {fmt(productDetail.stockSummary.reserved)}
+                  </b>
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small" style={{ textAlign: "center" }}>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    Số Pack / Lô
+                  </div>
+                  <b style={{ fontSize: 18, color: "#0284c7" }}>
+                    {fmt(productDetail.stockSummary.packsCount)}
+                  </b>
+                </Card>
+              </Col>
+            </Row>
+
+            <Tabs
+              defaultActiveKey="packs"
+              items={[
+                {
+                  key: "packs",
+                  label: `Danh sách Pack / Lô (${productDetail.packs.length})`,
+                  children: (
+                    <Table
+                      dataSource={productDetail.packs}
+                      rowKey="id"
+                      size="small"
+                      pagination={{ pageSize: 6 }}
+                      columns={[
+                        {
+                          title: "Mã Pack",
+                          dataIndex: "mes_pack_no",
+                          render: (t: string) => (
+                            <code style={{ fontSize: 11 }}>{t}</code>
+                          ),
+                        },
+                        {
+                          title: "Số lô",
+                          dataIndex: "lot_no",
+                        },
+                        {
+                          title: "Vị trí",
+                          dataIndex: "location_code",
+                          render: (t: string) => <Tag>{t}</Tag>,
+                        },
+                        {
+                          title: "Tồn kho",
+                          dataIndex: "on_hand",
+                          render: (n: number) => <b>{fmt(n)}</b>,
+                        },
+                        {
+                          title: "Hạn dùng",
+                          dataIndex: "expired_date",
+                          render: (d: string) => (d ? d.slice(0, 10) : "—"),
+                        },
+                        {
+                          title: "Trạng thái",
+                          dataIndex: "status",
+                          render: (s: string) => (
+                            <Tag color={s === "AVAILABLE" ? "green" : "red"}>
+                              {s === "AVAILABLE" ? "Khả dụng" : s}
+                            </Tag>
+                          ),
+                        },
+                      ]}
+                    />
+                  ),
+                },
+                {
+                  key: "movements",
+                  label: `Lịch sử xuất / nhập (${productDetail.recentMovements.length})`,
+                  children: (
+                    <Table
+                      dataSource={productDetail.recentMovements}
+                      rowKey="id"
+                      size="small"
+                      pagination={{ pageSize: 6 }}
+                      columns={[
+                        {
+                          title: "Thời gian",
+                          dataIndex: "effective_at",
+                          render: (t: string) =>
+                            t
+                              ? new Date(t).toLocaleString("vi-VN", {
+                                  dateStyle: "short",
+                                  timeStyle: "short",
+                                })
+                              : "—",
+                        },
+                        {
+                          title: "Nghiệp vụ",
+                          dataIndex: "movement_type",
+                          render: (t: string) => {
+                            const colors: Record<string, string> = {
+                              INBOUND: "green",
+                              OUTBOUND: "blue",
+                              OPENING_BALANCE: "purple",
+                              ADJUSTMENT: "orange",
+                            };
+                            const labels: Record<string, string> = {
+                              INBOUND: "Nhập kho",
+                              OUTBOUND: "Xuất kho",
+                              OPENING_BALANCE: "Tồn đầu kỳ",
+                              ADJUSTMENT: "Điều chỉnh",
+                            };
+                            return (
+                              <Tag color={colors[t] || "default"}>
+                                {labels[t] || t}
+                              </Tag>
+                            );
+                          },
+                        },
+                        {
+                          title: "Biến động",
+                          dataIndex: "quantity_delta",
+                          render: (d: number) => (
+                            <b
+                              style={{
+                                color: d > 0 ? "#16a34a" : "#dc2626",
+                              }}
+                            >
+                              {d > 0 ? `+${fmt(d)}` : fmt(d)}
+                            </b>
+                          ),
+                        },
+                        {
+                          title: "Tồn sau",
+                          dataIndex: "balance_after",
+                          render: (n: number) => fmt(n),
+                        },
+                        {
+                          title: "Người thực hiện",
+                          render: (_: any, r: any) =>
+                            r.actor_name || r.actor_username || "—",
+                        },
+                      ]}
+                    />
+                  ),
+                },
+              ]}
+            />
+          </div>
+        )}
+      </Drawer>
+
       <Card title="Bắt đầu một nghiệp vụ" className="section-gap">
         <Row gutter={[16, 16]}>
           {[
