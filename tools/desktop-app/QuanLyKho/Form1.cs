@@ -41,6 +41,7 @@ public partial class Form1 : Form
     private const string RegValueDarkMode = "IsDarkMode";
     private const string RegValueTopBarVisible = "TopBarVisible";
     private const string RegValueFontSize = "FontSize";
+    private const string RegValueLang = "Language";
 
     public const string DefaultLocalUrl = "https://localhost";
     public const string DefaultTunnelUrl = "https://biological-candy-instruments-installations.trycloudflare.com";
@@ -51,6 +52,7 @@ public partial class Form1 : Form
     private bool isTopBarVisible = true;
     private int currentFontSize = 14;
     private double currentZoomFactor = 1.0;
+    private string currentLang = "vi";
     private int retryCount = 0;
 
     public Form1()
@@ -113,6 +115,12 @@ public partial class Form1 : Form
                 {
                     currentFontSize = (fs == 13 || fs == 14 || fs == 16 || fs == 18) ? fs : 14;
                     currentZoomFactor = currentFontSize == 13 ? 0.92 : currentFontSize == 16 ? 1.15 : currentFontSize == 18 ? 1.28 : 1.0;
+                }
+
+                var savedLang = key.GetValue(RegValueLang) as string;
+                if (!string.IsNullOrWhiteSpace(savedLang))
+                {
+                    currentLang = (savedLang == "en" || savedLang == "ko") ? savedLang : "vi";
                 }
             }
         }
@@ -454,6 +462,7 @@ public partial class Form1 : Form
             {
                 ApplyThemeToWebView();
                 ApplyFontSizeToWebView();
+                ApplyLanguageToWebView();
 
                 if (e.IsSuccess)
                 {
@@ -557,12 +566,27 @@ public partial class Form1 : Form
         }
     }
 
+    private async void ApplyLanguageToWebView()
+    {
+        if (webView?.CoreWebView2 != null)
+        {
+            try
+            {
+                string script = $"if (window.__setLang) {{ window.__setLang('{currentLang}'); }} " +
+                                $"localStorage.setItem('wms_lang', '{currentLang}'); " +
+                                $"window.dispatchEvent(new CustomEvent('wms-lang-change', {{ detail: {{ lang: '{currentLang}' }} }}));";
+                await webView.CoreWebView2.ExecuteScriptAsync(script);
+            }
+            catch { }
+        }
+    }
+
     public void ShowUnifiedSettingsDialog()
     {
         using var form = new Form
         {
             Text = "Cài Đặt Hệ Thống WMS",
-            Size = new Size(620, 640),
+            Size = new Size(620, 720),
             StartPosition = FormStartPosition.CenterParent,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
@@ -706,10 +730,49 @@ public partial class Form1 : Form
 
         y += 82;
 
-        // --- 4. Đăng xuất / Đổi tài khoản ---
+        // --- 4. Ngôn ngữ (Language / 언어) ---
+        var grpLang = new GroupBox
+        {
+            Text = "🌐 4. Ngôn ngữ hiển thị (Language / 언어)",
+            Location = new Point(20, y),
+            Size = new Size(560, 70),
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
+        };
+        var rbLangVi = new RadioButton
+        {
+            Location = new Point(20, 28),
+            Size = new Size(160, 24),
+            Text = "🇻🇳 Tiếng Việt (VN)",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+            Checked = currentLang == "vi"
+        };
+        var rbLangEn = new RadioButton
+        {
+            Location = new Point(190, 28),
+            Size = new Size(160, 24),
+            Text = "🇬🇧 English (EN)",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+            Checked = currentLang == "en"
+        };
+        var rbLangKo = new RadioButton
+        {
+            Location = new Point(360, 28),
+            Size = new Size(160, 24),
+            Text = "🇰🇷 한국어 (KO)",
+            Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+            Checked = currentLang == "ko"
+        };
+        grpLang.Controls.Add(rbLangVi);
+        grpLang.Controls.Add(rbLangEn);
+        grpLang.Controls.Add(rbLangKo);
+        form.Controls.Add(grpLang);
+
+        y += 82;
+
+        // --- 5. Đăng xuất / Đổi tài khoản ---
         var grpAccount = new GroupBox
         {
-            Text = "👤 4. Tài khoản người dùng",
+            Text = "👤 5. Tài khoản người dùng",
             Location = new Point(20, y),
             Size = new Size(560, 70),
             Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
@@ -761,10 +824,10 @@ public partial class Form1 : Form
 
         y += 82;
 
-        // --- 5. Máy chủ kho ---
+        // --- 6. Máy chủ kho ---
         var grpServer = new GroupBox
         {
-            Text = "🌐 5. Địa chỉ máy chủ kho (LAN / Online)",
+            Text = "🌐 6. Địa chỉ máy chủ kho (LAN / Online)",
             Location = new Point(20, y),
             Size = new Size(560, 85),
             Font = new Font("Segoe UI", 9.5f, FontStyle.Bold)
@@ -845,7 +908,11 @@ public partial class Form1 : Form
             currentZoomFactor = currentFontSize == 13 ? 0.92 : currentFontSize == 16 ? 1.15 : currentFontSize == 18 ? 1.28 : 1.0;
             ApplyFontSizeToWebView();
 
-            // 4. Lưu Server
+            // 4. Lưu Ngôn ngữ
+            currentLang = rbLangEn.Checked ? "en" : rbLangKo.Checked ? "ko" : "vi";
+            ApplyLanguageToWebView();
+
+            // 5. Lưu Server
             var sUrl = txtServer.Text.Trim();
             bool serverChanged = false;
             if (!string.IsNullOrEmpty(sUrl) && sUrl != currentServerUrl)
@@ -854,7 +921,7 @@ public partial class Form1 : Form
                 serverChanged = true;
             }
 
-            // 5. Lưu Hiển thị TopBar
+            // 6. Lưu Hiển thị TopBar
             SaveTopBarVisibility(chkShowTopBar.Checked);
             topBar.Visible = isTopBarVisible;
             btnFloatingSettings.Visible = !isTopBarVisible;
@@ -866,6 +933,7 @@ public partial class Form1 : Form
                 key?.SetValue(RegValueStoragePath, currentStoragePath);
                 key?.SetValue(RegValueDarkMode, isDarkMode ? "1" : "0");
                 key?.SetValue(RegValueFontSize, currentFontSize.ToString());
+                key?.SetValue(RegValueLang, currentLang);
                 key?.SetValue(RegValueServerUrl, currentServerUrl);
             }
             catch { }

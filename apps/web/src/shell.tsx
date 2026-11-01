@@ -33,18 +33,11 @@ import { Inbound } from "./pages/inbound";
 import { Imports } from "./pages/imports";
 import { Reports } from "./pages/reports";
 import { Users } from "./pages/users";
-const entries = [
-  { key: "dashboard", label: "Tổng quan", icon: <DashboardOutlined /> },
-  { key: "matrix", label: "Xuất kho theo ngày", icon: <TableOutlined /> },
-  { key: "inventory", label: "Tồn kho", icon: <InboxOutlined /> },
-  { key: "inbound", label: "Quét nhập kho", icon: <ScanOutlined /> },
-  { key: "outbound", label: "Xuất kho FEFO", icon: <ExportOutlined /> },
-  { key: "imports", label: "Nhập từ Excel", icon: <ImportOutlined /> },
-  { key: "reports", label: "Báo cáo & Excel", icon: <FileExcelOutlined /> },
-  { key: "catalog", label: "Danh mục", icon: <AppstoreOutlined /> },
-];
+import { useI18n, Lang } from "./i18n";
+
 export function WmsApp() {
   const { message } = App.useApp();
+  const { lang, setLang, t } = useI18n();
   const [user, setUser] = useState<any>(),
     [loading, setLoading] = useState(true),
     [warehouses, setWarehouses] = useState<any[]>([]),
@@ -59,6 +52,17 @@ export function WmsApp() {
     [isDarkTheme, setIsDarkTheme] = useState<boolean>(() => {
       return localStorage.getItem("wms_dark") === "true";
     });
+
+  const entries = [
+    { key: "dashboard", label: t("menu_dashboard"), icon: <DashboardOutlined /> },
+    { key: "matrix", label: t("menu_matrix"), icon: <TableOutlined /> },
+    { key: "inventory", label: t("menu_inventory"), icon: <InboxOutlined /> },
+    { key: "inbound", label: t("menu_inbound"), icon: <ScanOutlined /> },
+    { key: "outbound", label: t("menu_outbound"), icon: <ExportOutlined /> },
+    { key: "imports", label: t("menu_imports"), icon: <ImportOutlined /> },
+    { key: "reports", label: t("menu_reports"), icon: <FileExcelOutlined /> },
+    { key: "catalog", label: t("menu_catalog"), icon: <AppstoreOutlined /> },
+  ];
   const load = async () => {
     const r = await api("/auth/me");
     setCsrf(r.csrfToken);
@@ -153,7 +157,7 @@ export function WmsApp() {
     user.role === "ADMIN"
       ? [
           ...entries,
-          { key: "users", label: "Người dùng", icon: <AppstoreOutlined /> },
+          { key: "users", label: t("menu_users"), icon: <AppstoreOutlined /> },
         ]
       : entries;
   const title = menu.find((e) => e.key === page)?.label;
@@ -172,7 +176,7 @@ export function WmsApp() {
             <small>WAREHOUSE MANAGEMENT</small>
           </div>
         </div>
-        <div className="menu-caption">KHÔNG GIAN LÀM VIỆC</div>
+        <div className="menu-caption">{t("workspace_caption")}</div>
         <Menu
           theme="dark"
           mode="inline"
@@ -181,42 +185,53 @@ export function WmsApp() {
           onClick={({ key }) => setPage(key)}
         />
         <div className="sidebar-note">
-          <div className="live-dot" /> Kết nối máy chủ kho
+          <div className="live-dot" /> {t("server_connected")}
           <br />
-          <small>Một nguồn dữ liệu · Nhiều máy trạm</small>
+          <small>{t("server_subtitle")}</small>
         </div>
       </Layout.Sider>
       <Layout>
         <Layout.Header className="topbar">
           <div className="breadcrumb">
-            Không gian kho <span>/</span> <b>{title}</b>
+            {t("header_space")} <span>/</span> <b>{title}</b>
           </div>
           <Space size="middle">
             <Select
-              aria-label="Kho làm việc"
+              aria-label={t("warehouse_label")}
               value={warehouse || undefined}
               onChange={setWarehouse}
               options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
               style={{ minWidth: 190 }}
             />
+            <Select
+              value={lang}
+              onChange={(val) => setLang(val as Lang)}
+              options={[
+                { value: "vi", label: "🇻🇳 VI" },
+                { value: "en", label: "🇬🇧 EN" },
+                { value: "ko", label: "🇰🇷 KO" },
+              ]}
+              style={{ minWidth: 95 }}
+              title="Ngôn ngữ / Language / 언어"
+            />
             <Tag>
               {user.role === "ADMIN"
-                ? "Quản trị"
+                ? t("role_admin")
                 : user.role === "VIEWER"
-                  ? "Chỉ xem"
-                  : "Thủ kho"}
+                  ? t("role_viewer")
+                  : t("role_clerk")}
             </Tag>
             <span className="user-name">{user.display_name}</span>
             <Button
               icon={<SettingOutlined />}
-              title="Cài đặt hệ thống & Cỡ chữ"
+              title={t("settings_title")}
               onClick={() => setSettingsOpen(true)}
             >
-              Cài đặt
+              {t("settings_btn")}
             </Button>
             <Button
               icon={isDarkTheme ? <SunOutlined /> : <MoonOutlined />}
-              title="Đổi giao diện Sáng / Tối"
+              title={t("theme_btn")}
               onClick={() => {
                 const next = !isDarkTheme;
                 setIsDarkTheme(next);
@@ -237,21 +252,24 @@ export function WmsApp() {
                 setCsrf("");
               }}
             >
-              Đăng xuất
+              {t("logout_btn")}
             </Button>
           </Space>
         </Layout.Header>
         <Layout.Content className="main-content">
           <div className="page-heading">
             <div>
-              <span className="eyebrow">VẬN HÀNH KHO</span>
+              <span className="eyebrow">{t("header_op")}</span>
               <h1>{title}</h1>
             </div>
             <span className="today">
-              {new Intl.DateTimeFormat("vi-VN", {
-                dateStyle: "full",
-                timeZone: "Asia/Ho_Chi_Minh",
-              }).format(new Date())}
+              {new Intl.DateTimeFormat(
+                lang === "en" ? "en-US" : lang === "ko" ? "ko-KR" : "vi-VN",
+                {
+                  dateStyle: "full",
+                  timeZone: "Asia/Ho_Chi_Minh",
+                },
+              ).format(new Date())}
             </span>
           </div>
           {warehouse ? (
@@ -281,12 +299,12 @@ export function WmsApp() {
           )}
         </Layout.Content>
         <Layout.Footer className="footer">
-          Kho Vật Tư · Tồn theo pack · Asia/Ho_Chi_Minh
+          {t("footer_text")}
         </Layout.Footer>
       </Layout>
 
       <Modal
-        title="⚙️ Cài Đặt Hệ Thống & Hiển Thị"
+        title={t("settings_title")}
         open={settingsOpen}
         onCancel={() => setSettingsOpen(false)}
         footer={[
@@ -295,16 +313,32 @@ export function WmsApp() {
             type="primary"
             onClick={() => setSettingsOpen(false)}
           >
-            Hoàn tất
+            {t("done_btn")}
           </Button>,
         ]}
       >
         <div style={{ marginBottom: 22 }}>
           <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>
-            🔤 Cỡ chữ hiển thị
+            {t("settings_lang_title")}
+          </div>
+          <Segmented
+            value={lang}
+            onChange={(val) => setLang(val as Lang)}
+            options={[
+              { label: t("lang_vi"), value: "vi" },
+              { label: t("lang_en"), value: "en" },
+              { label: t("lang_ko"), value: "ko" },
+            ]}
+            block
+          />
+        </div>
+
+        <div style={{ marginBottom: 22 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>
+            {t("settings_font_title")}
           </div>
           <p style={{ color: "#64748b", fontSize: 13, marginBottom: 10 }}>
-            Tùy chỉnh độ lớn chữ trên bảng biểu và giao diện giúp dễ quan sát số liệu kho.
+            {t("settings_font_desc")}
           </p>
           <Segmented
             value={currentFontSize}
@@ -323,10 +357,10 @@ export function WmsApp() {
               }
             }}
             options={[
-              { label: "Nhỏ (13px)", value: 13 },
-              { label: "Vừa (14px - Chuẩn)", value: 14 },
-              { label: "Lớn (16px)", value: 16 },
-              { label: "Rất lớn (18px)", value: 18 },
+              { label: t("font_small"), value: 13 },
+              { label: t("font_normal"), value: 14 },
+              { label: t("font_large"), value: 16 },
+              { label: t("font_xlarge"), value: 18 },
             ]}
             block
           />
@@ -341,13 +375,13 @@ export function WmsApp() {
               border: isDarkTheme ? "1px solid #333" : "1px solid #e2e8f0",
             }}
           >
-            👀 Xem trước: Mã GH64-10383A · Tồn 24.000 PCS · Lô LOT-202610
+            {t("preview_sample")}
           </div>
         </div>
 
         <div style={{ marginBottom: 22 }}>
           <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>
-            🌓 Giao diện làm việc
+            {t("settings_theme_title")}
           </div>
           <Segmented
             value={isDarkTheme ? "dark" : "light"}
@@ -366,8 +400,8 @@ export function WmsApp() {
               }
             }}
             options={[
-              { label: "☀️ Giao diện Sáng (Light)", value: "light" },
-              { label: "🌙 Giao diện Tối (Dark Mode)", value: "dark" },
+              { label: t("theme_light"), value: "light" },
+              { label: t("theme_dark"), value: "dark" },
             ]}
             block
           />
@@ -388,7 +422,7 @@ export function WmsApp() {
                 setSettingsOpen(false);
               }}
             >
-              ⚙️ Mở Cài Đặt Ứng Dụng Desktop Nâng Cao (F2)
+              {t("desktop_settings_btn")}
             </Button>
           </div>
         )}

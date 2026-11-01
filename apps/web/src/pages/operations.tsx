@@ -34,12 +34,14 @@ import {
   EyeOutlined,
 } from "@ant-design/icons";
 import { api, post, params, fmt } from "../api";
+import { useI18n, getWeekdayName } from "../i18n";
 export type PageProps = {
   warehouse: string;
   user: any;
   navigate: (page: string) => void;
 };
 export function Dashboard({ warehouse, navigate }: PageProps) {
+  const { t } = useI18n();
   const [data, setData] = useState<any>(),
     [error, setError] = useState(""),
     [unit, setUnit] = useState("");
@@ -83,34 +85,34 @@ export function Dashboard({ warehouse, navigate }: PageProps) {
             ).map((u: any) => ({ value: u.base_uom, label: u.base_uom }))}
           />
           <Button icon={<ReloadOutlined />} onClick={load}>
-            Làm mới
+            {t("btn_refresh")}
           </Button>
         </Space>
       </div>
       <Row gutter={[18, 18]}>
         {[
           {
-            title: "Tồn vật lý",
+            title: t("stat_on_hand"),
             value: d.on_hand,
-            note: "Bao gồm hàng cách ly / hết hạn",
+            note: t("stat_on_hand_sub"),
             icon: <InboxOutlined />,
           },
           {
-            title: "Khả dụng để xuất",
+            title: t("stat_available"),
             value: d.available,
-            note: "Đủ điều kiện và còn hạn",
+            note: t("stat_available_sub"),
             icon: <ArrowUpOutlined />,
           },
           {
-            title: "Đã giữ cho đơn",
+            title: t("stat_reserved"),
             value: d.reserved,
-            note: "Đang chờ hoàn tất xuất kho",
+            note: t("stat_reserved_sub"),
             icon: <ArrowDownOutlined />,
           },
           {
-            title: "Pack đang tồn",
+            title: t("stat_packs"),
             value: d.packs,
-            note: `${fmt(d.expired)} hết hạn · ${fmt(d.expiring)} cận hạn`,
+            note: `${fmt(d.expired)} ${t("expired_packs")} · ${fmt(d.expiring)} ${t("expiring_packs")}`,
             icon: <ScanOutlined />,
           },
         ].map((v, i) => (
@@ -133,19 +135,19 @@ export function Dashboard({ warehouse, navigate }: PageProps) {
       <Row gutter={[18, 18]} className="section-gap">
         <Col xs={24} xl={16}>
           <Card
-            title="Nhịp nhập · xuất"
+            title={t("stat_flow_title")}
             extra={
               <span className="muted">
-                14 ngày có giao dịch gần nhất · {unit}
+                {t("stat_flow_sub")}
               </span>
             }
           >
             <div className="chart-legend">
               <span>
-                <i className="inbound-dot" /> Nhập
+                <i className="inbound-dot" /> {t("inbound_label")}
               </span>
               <span>
-                <i className="outbound-dot" /> Xuất
+                <i className="outbound-dot" /> {t("outbound_label")}
               </span>
             </div>
             {series.length ? (
@@ -154,13 +156,13 @@ export function Dashboard({ warehouse, navigate }: PageProps) {
                   <div className="bar-group" key={v.day}>
                     <div className="bars">
                       <div
-                        title={`Nhập: ${fmt(v.inbound)}`}
+                        title={`${t("inbound_label")}: ${fmt(v.inbound)}`}
                         style={{
                           height: `${Math.max(2, (Number(v.inbound) / max) * 150)}px`,
                         }}
                       />
                       <div
-                        title={`Xuất: ${fmt(v.outbound)}`}
+                        title={`${t("outbound_label")}: ${fmt(v.outbound)}`}
                         style={{
                           height: `${Math.max(2, (Number(v.outbound) / max) * 150)}px`,
                         }}
@@ -178,23 +180,23 @@ export function Dashboard({ warehouse, navigate }: PageProps) {
           </Card>
         </Col>
         <Col xs={24} xl={8}>
-          <Card title="Ưu tiên xử lý">
+          <Card title={t("priority_title")}>
             <div className="priority">
               <span className="priority-icon danger">!</span>
               <div>
-                <b>{fmt(d.expired)} pack đã hết hạn</b>
-                <p>Kiểm tra, cách ly và lập phương án xử lý.</p>
+                <b>{fmt(d.expired)} {t("expired_packs")}</b>
+                <p>{t("expired_desc")}</p>
               </div>
             </div>
             <div className="priority">
               <span className="priority-icon warning">↗</span>
               <div>
-                <b>{fmt(d.expiring)} pack cận hạn</b>
-                <p>Ưu tiên phân bổ theo FEFO trong 30 ngày tới.</p>
+                <b>{fmt(d.expiring)} {t("expiring_packs")}</b>
+                <p>{t("expiring_desc")}</p>
               </div>
             </div>
             <Button block onClick={() => navigate("reports")}>
-              Mở báo cáo hạn sử dụng
+              {t("open_expiry_report")}
             </Button>
           </Card>
         </Col>
@@ -212,19 +214,19 @@ export function Dashboard({ warehouse, navigate }: PageProps) {
         >
           <div>
             <h3 style={{ margin: "0 0 4px", fontSize: 16 }}>
-              📊 Báo Cáo Tồn & Xuất Kho Theo Ngày
+              {t("daily_report_title")}
             </h3>
             <p style={{ margin: 0, color: "#64748b" }}>
-              Bảng theo dõi xuất kho chi tiết theo các ngày trong tuần (Thứ 2 đến Chủ nhật), số lượng tồn thực tế và truy vết từng linh kiện.
+              {t("daily_report_desc")}
             </p>
           </div>
           <Button type="primary" onClick={() => navigate("matrix")}>
-            Mở Báo Cáo Xuất Theo Ngày →
+            {t("daily_report_btn")}
           </Button>
         </div>
       </Card>
 
-      <Card title="Bắt đầu một nghiệp vụ" className="section-gap">
+      <Card title={t("quick_start")} className="section-gap">
         <Row gutter={[16, 16]}>
           {[
             {
@@ -1036,6 +1038,7 @@ export function Outbound({ warehouse, user }: PageProps) {
 }
 
 export function OutboundMatrixPage({ warehouse, user }: PageProps) {
+  const { lang, t } = useI18n();
   const [matrixData, setMatrixData] = useState<any>({ dates: [], items: [] });
   const [matrixLoading, setMatrixLoading] = useState(false);
   const [matrixDays, setMatrixDays] = useState(7);
@@ -1093,7 +1096,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
         title={
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 18, fontWeight: 700 }}>
-              📊 Báo Cáo Tồn & Xuất Kho Theo Ngày
+              {t("daily_report_title")}
             </span>
           </div>
         }
@@ -1101,7 +1104,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
           <Space wrap>
             <Input
               prefix={<SearchOutlined />}
-              placeholder="Tìm mã / quy cách / model / TP..."
+              placeholder={t("btn_search")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               style={{ width: 280 }}
@@ -1111,9 +1114,9 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
               value={matrixDays}
               onChange={setMatrixDays}
               options={[
-                { value: 7, label: "7 ngày gần nhất" },
-                { value: 14, label: "14 ngày gần nhất" },
-                { value: 30, label: "30 ngày gần nhất" },
+                { value: 7, label: t("opt_7days") },
+                { value: 14, label: t("opt_14days") },
+                { value: 30, label: t("opt_30days") },
               ]}
               style={{ width: 160 }}
             />
@@ -1122,7 +1125,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
               onClick={loadMatrix}
               loading={matrixLoading}
             >
-              Tải lại
+              {t("btn_reload")}
             </Button>
           </Space>
         }
@@ -1140,7 +1143,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
             showSizeChanger: true,
             showQuickJumper: true,
             showTotal: (total, range) =>
-              `${range[0]}-${range[1]} / Tổng số ${total} linh kiện`,
+              `${range[0]}-${range[1]} / ${total} ${t("total_components")}`,
             onChange: (p, ps) => {
               setPage(p);
               setPageSize(ps);
@@ -1148,7 +1151,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
           }}
           columns={[
             {
-              title: "STT",
+              title: t("col_stt"),
               key: "stt",
               width: 60,
               align: "center",
@@ -1156,7 +1159,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
                 (page - 1) * pageSize + index + 1,
             },
             {
-              title: "Model sử dụng",
+              title: t("col_model"),
               dataIndex: "model",
               width: 140,
               render: (t: string) => (
@@ -1164,42 +1167,42 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
               ),
             },
             {
-              title: "Code thành phẩm",
+              title: t("col_fg_code"),
               dataIndex: "finishedGoodsCode",
               width: 140,
               render: (t: string) => (t ? <code>{t}</code> : "—"),
             },
             {
-              title: "Tên vật liệu (Quy cách)",
+              title: t("col_spec"),
               dataIndex: "specification",
               width: 230,
-              render: (t: string, r: any) => (
+              render: (spec: string, r: any) => (
                 <a
                   onClick={() => openProductDetail(r.id)}
                   style={{ fontWeight: 600, color: "#1d4ed8" }}
                 >
-                  {t}
+                  {spec}
                 </a>
               ),
             },
             {
-              title: "Mã linh kiện",
+              title: t("col_part_no"),
               dataIndex: "partNo",
               width: 160,
-              render: (t: string) =>
-                t ? (
-                  <code style={{ fontWeight: 600 }}>{t}</code>
+              render: (part: string) =>
+                part ? (
+                  <code style={{ fontWeight: 600 }}>{part}</code>
                 ) : (
                   <Tag
                     color="warning"
                     style={{ background: "#fef9c3", borderColor: "#fde047" }}
                   >
-                    Chưa có mã
+                    {t("no_code")}
                   </Tag>
                 ),
             },
             {
-              title: "Tồn hiện tại",
+              title: t("col_on_hand"),
               dataIndex: "onHand",
               width: 120,
               align: "right",
@@ -1219,7 +1222,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
                 <div style={{ textAlign: "center", fontSize: 12 }}>
                   <div>{d.date.slice(5)}</div>
                   <div style={{ fontWeight: 700, color: "#2563eb" }}>
-                    {d.dayName}
+                    {getWeekdayName(d.date, lang)}
                   </div>
                 </div>
               ),
@@ -1245,7 +1248,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
               },
             })),
             {
-              title: "Tổng xuất",
+              title: t("col_total_out"),
               dataIndex: "totalOutbound",
               width: 100,
               align: "right",
@@ -1257,27 +1260,13 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
                 ),
             },
             {
-              title: "Người xuất gần nhất",
+              title: t("col_last_operator"),
               dataIndex: "lastOutboundBy",
               width: 150,
               render: (t: string) => t || <span className="muted">—</span>,
             },
             {
-              title: "Cập nhật lúc",
-              dataIndex: "lastUpdated",
-              width: 140,
-              render: (t: string) =>
-                t ? (
-                  new Date(t).toLocaleString("vi-VN", {
-                    dateStyle: "short",
-                    timeStyle: "short",
-                  })
-                ) : (
-                  <span className="muted">—</span>
-                ),
-            },
-            {
-              title: "Thao tác",
+              title: t("col_actions"),
               key: "action",
               fixed: "right" as const,
               width: 80,
@@ -1289,7 +1278,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
                   icon={<EyeOutlined />}
                   onClick={() => openProductDetail(r.id)}
                 >
-                  Xem
+                  {t("btn_view")}
                 </Button>
               ),
             },
@@ -1298,7 +1287,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
       </Card>
 
       <Drawer
-        title="Chi tiết toàn diện sản phẩm & Lịch sử tồn kho"
+        title={t("product_detail_title")}
         placement="right"
         width={720}
         open={!!detailId}
@@ -1356,7 +1345,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
               <Col span={6}>
                 <Card size="small" style={{ textAlign: "center" }}>
                   <div className="muted" style={{ fontSize: 12 }}>
-                    Tồn vật lý
+                    {t("stat_on_hand")}
                   </div>
                   <b style={{ fontSize: 18, color: "#1e293b" }}>
                     {fmt(productDetail.stockSummary.onHand)}
@@ -1366,7 +1355,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
               <Col span={6}>
                 <Card size="small" style={{ textAlign: "center" }}>
                   <div className="muted" style={{ fontSize: 12 }}>
-                    Khả dụng
+                    {t("stat_available")}
                   </div>
                   <b style={{ fontSize: 18, color: "#16a34a" }}>
                     {fmt(productDetail.stockSummary.available)}
@@ -1376,7 +1365,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
               <Col span={6}>
                 <Card size="small" style={{ textAlign: "center" }}>
                   <div className="muted" style={{ fontSize: 12 }}>
-                    Đang giữ
+                    {t("stat_reserved")}
                   </div>
                   <b style={{ fontSize: 18, color: "#d97706" }}>
                     {fmt(productDetail.stockSummary.reserved)}
@@ -1386,7 +1375,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
               <Col span={6}>
                 <Card size="small" style={{ textAlign: "center" }}>
                   <div className="muted" style={{ fontSize: 12 }}>
-                    Số Pack / Lô
+                    {t("stat_packs")}
                   </div>
                   <b style={{ fontSize: 18, color: "#0284c7" }}>
                     {fmt(productDetail.stockSummary.packsCount)}
@@ -1400,7 +1389,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
               items={[
                 {
                   key: "packs",
-                  label: `Danh sách Pack / Lô (${productDetail.packs.length})`,
+                  label: `${t("stock_by_pack")} (${productDetail.packs.length})`,
                   children: (
                     <Table
                       dataSource={productDetail.packs}
@@ -1409,37 +1398,37 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
                       pagination={{ pageSize: 6 }}
                       columns={[
                         {
-                          title: "Mã Pack",
+                          title: t("col_pack"),
                           dataIndex: "mes_pack_no",
                           render: (t: string) => (
                             <code style={{ fontSize: 11 }}>{t}</code>
                           ),
                         },
                         {
-                          title: "Số lô",
+                          title: t("col_lot"),
                           dataIndex: "lot_no",
                         },
                         {
-                          title: "Vị trí",
+                          title: t("col_location"),
                           dataIndex: "location_code",
                           render: (t: string) => <Tag>{t}</Tag>,
                         },
                         {
-                          title: "Tồn kho",
+                          title: t("col_on_hand"),
                           dataIndex: "on_hand",
                           render: (n: number) => <b>{fmt(n)}</b>,
                         },
                         {
-                          title: "Hạn dùng",
+                          title: t("col_expiry"),
                           dataIndex: "expired_date",
                           render: (d: string) => (d ? d.slice(0, 10) : "—"),
                         },
                         {
-                          title: "Trạng thái",
+                          title: t("col_status"),
                           dataIndex: "status",
                           render: (s: string) => (
                             <Tag color={s === "AVAILABLE" ? "green" : "red"}>
-                              {s === "AVAILABLE" ? "Khả dụng" : s}
+                              {s === "AVAILABLE" ? t("status_available") : s}
                             </Tag>
                           ),
                         },
@@ -1449,7 +1438,7 @@ export function OutboundMatrixPage({ warehouse, user }: PageProps) {
                 },
                 {
                   key: "movements",
-                  label: `Lịch sử xuất / nhập (${productDetail.recentMovements.length})`,
+                  label: `${t("movement_history")} (${productDetail.recentMovements.length})`,
                   children: (
                     <Table
                       dataSource={productDetail.recentMovements}
