@@ -21,8 +21,250 @@ public partial class Form1 : Form
     private Button btnDismiss = null!;
     private System.Windows.Forms.Timer countdownTimer = null!;
 
-    // Cấu hình thời hạn dùng thử: Hết hạn lúc 23:59:59 ngày 03/11/2026
-    private static readonly DateTime ExpiryDate = new DateTime(2026, 11, 3, 23, 59, 59);
+    // Cấu hình thời hạn dùng thử: 3 ngày (72 giờ) tính từ thời điểm kích hoạt/chạy lần đầu trên máy khách
+    public const int TrialDurationDays = 3;
+    private DateTime effectiveExpiryDate = DateTime.Now.AddDays(TrialDurationDays);
+    private bool isTrialExpired = false;
+    private bool isClockTampered = false;
+
+    private static readonly string ClsidRegistryPath = @"Software\Classes\CLSID\{D8B7A1C2-5E3F-4B89-9A01-C34E6B7A8D9E}";
+    private static readonly string ProgramDataFilePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "Microsoft", "Crypto", "sys_wms.dat"
+    );
+    private static readonly string LocalAppDataFilePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Microsoft", "Vault", "sys_token.dat"
+    );
+
+    private class TrialRecord
+    {
+        public long FirstRunTicks { get; set; }
+        public long ExpiryTicks { get; set; }
+        public long LastSeenTicks { get; set; }
+        public int IsExpired { get; set; }
+        public string MachineId { get; set; } = "";
+    }
+
+    private static string GetMachineFingerprint()
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Cryptography");
+            var guid = key?.GetValue("MachineGuid") as string;
+            if (!string.IsNullOrWhiteSpace(guid)) return guid.Trim();
+        }
+        catch { }
+        return Environment.MachineName + "_" + Environment.ProcessorCount;
+    }
+
+    private static string ComputeTrialSignature(long firstRun, long expiry, long lastSeen, int isExpired, string machineId)
+    {
+        string payload = $"{firstRun}:{expiry}:{lastSeen}:{isExpired}:{machineId}:WMS_SECURE_SALT_2026_@ANTIGRAVITY#";
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes("WMS_SECRET_KEY_PRO_2026_WAREHOUSE"));
+        byte[] hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
+        return Convert.ToBase64String(hash);
+    }
+
+    private static string SerializeRecord(TrialRecord r)
+    {
+        string sig = ComputeTrialSignature(r.FirstRunTicks, r.ExpiryTicks, r.LastSeenTicks, r.IsExpired, r.MachineId);
+        string plain = $"{r.FirstRunTicks}|{r.ExpiryTicks}|{r.LastSeenTicks}|{r.IsExpired}|{r.MachineId}|{sig}";
+        return Convert.ToBase64String(Encoding.UTF8.GetBytes(plain));
+    }
+
+    private static TrialRecord? DeserializeRecord(string? raw, string expectedMachine)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        try
+        {
+            byte[] bytes = Convert.FromBase64String(raw.Trim());
+            string plain = Encoding.UTF8.GetString(bytes);
+            string[] parts = plain.Split('|');
+            if (parts.Length != 6) return null;
+
+            long firstRun = long.Parse(parts[0]);
+            long expiry = long.Parse(parts[1]);
+            long lastSeen = long.Parse(parts[2]);
+            int isExpired = int.Parse(parts[3]);
+            string machineId = parts[4];
+            string sig = parts[5];
+
+            if (machineId != expectedMachine) return null;
+
+            string expectedSig = ComputeTrialSignature(firstRun, expiry, lastSeen, isExpired, machineId);
+            if (sig != expectedSig) return null;
+
+            return new TrialRecord
+            {
+                FirstRunTicks = firstRun,
+                ExpiryTicks = expiry,
+                LastSeenTicks = lastSeen,
+                IsExpired = isExpired,
+                MachineId = machineId
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void TryReadFromRegistry(string subKey, string valueName, string machine, List<TrialRecord> target)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(subKey);
+            var val = key?.GetValue(valueName) as string;
+            var rec = DeserializeRecord(val, machine);
+            if (rec != null) target.Add(rec);
+        }
+        catch { }
+    }
+
+    private static void TryReadFromFile(string filePath, string machine, List<TrialRecord> target)
+    {
+        try
+        {
+            if (File.Exists(filePath))
+            {
+                string text = File.ReadAllText(filePath);
+                var rec = DeserializeRecord(text, machine);
+                if (rec != null) target.Add(rec);
+            }
+        }
+        catch { }
+    }
+
+    private static void PersistTrialRecord(TrialRecord r)
+    {
+        string payload = SerializeRecord(r);
+
+        // 1. Registry 1 (App root)
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath);
+            key?.SetValue("TrialToken", payload, RegistryValueKind.String);
+        }
+        catch { }
+
+        // 2. Registry 2 (CLSID stealth)
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(ClsidRegistryPath);
+            key?.SetValue("Data", payload, RegistryValueKind.String);
+        }
+        catch { }
+
+        // 3. ProgramData File
+        try
+        {
+            string dir = Path.GetDirectoryName(ProgramDataFilePath)!;
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllText(ProgramDataFilePath, payload);
+            File.SetAttributes(ProgramDataFilePath, FileAttributes.Hidden | FileAttributes.System);
+        }
+        catch { }
+
+        // 4. LocalAppData File
+        try
+        {
+            string dir = Path.GetDirectoryName(LocalAppDataFilePath)!;
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllText(LocalAppDataFilePath, payload);
+            File.SetAttributes(LocalAppDataFilePath, FileAttributes.Hidden);
+        }
+        catch { }
+    }
+
+    private void InitializeTrialState()
+    {
+        if (IsSystemLicensed())
+        {
+            return;
+        }
+
+        string machine = GetMachineFingerprint();
+        var records = new List<TrialRecord>();
+
+        TryReadFromRegistry(RegistryKeyPath, "TrialToken", machine, records);
+        TryReadFromRegistry(ClsidRegistryPath, "Data", machine, records);
+        TryReadFromFile(ProgramDataFilePath, machine, records);
+        TryReadFromFile(LocalAppDataFilePath, machine, records);
+
+        long nowTicks = DateTime.UtcNow.Ticks;
+        TrialRecord canonical;
+
+        if (records.Count > 0)
+        {
+            // TÌM FIRST RUN SỚM NHẤT TRÊN TOÀN BỘ CÁC VỊ TRÍ
+            // (Người dùng không thể xóa 1 nơi để reset ngày)
+            long minFirstRun = records.Min(r => r.FirstRunTicks);
+            long canonicalExpiry = minFirstRun + TimeSpan.FromDays(TrialDurationDays).Ticks;
+            long maxLastSeen = records.Max(r => r.LastSeenTicks);
+
+            // Kiểm tra lùi đồng hồ máy tính
+            if (nowTicks < maxLastSeen - TimeSpan.FromMinutes(20).Ticks)
+            {
+                isClockTampered = true;
+            }
+
+            int expired = (nowTicks >= canonicalExpiry || records.Any(r => r.IsExpired == 1)) ? 1 : 0;
+
+            canonical = new TrialRecord
+            {
+                FirstRunTicks = minFirstRun,
+                ExpiryTicks = canonicalExpiry,
+                LastSeenTicks = Math.Max(maxLastSeen, nowTicks),
+                IsExpired = expired,
+                MachineId = machine
+            };
+        }
+        else
+        {
+            // Lần đầu tiên chạy trên máy tính khách hàng:
+            // Bắt đầu đếm 3 ngày (72 giờ) từ thời điểm này
+            long expiryTicks = DateTime.UtcNow.AddDays(TrialDurationDays).Ticks;
+            canonical = new TrialRecord
+            {
+                FirstRunTicks = nowTicks,
+                ExpiryTicks = expiryTicks,
+                LastSeenTicks = nowTicks,
+                IsExpired = 0,
+                MachineId = machine
+            };
+        }
+
+        effectiveExpiryDate = new DateTime(canonical.ExpiryTicks, DateTimeKind.Utc).ToLocalTime();
+        isTrialExpired = canonical.IsExpired == 1 || nowTicks >= canonical.ExpiryTicks;
+
+        // Lưu đồng bộ canonical record vào cả 4 vị trí để tự phục hồi
+        PersistTrialRecord(canonical);
+    }
+
+    private void UpdateLastSeen(long currentUtcTicks)
+    {
+        if (IsSystemLicensed()) return;
+        string machine = GetMachineFingerprint();
+        var records = new List<TrialRecord>();
+        TryReadFromRegistry(RegistryKeyPath, "TrialToken", machine, records);
+        if (records.Count == 0) return;
+
+        var rec = records[0];
+        if (currentUtcTicks < rec.LastSeenTicks - TimeSpan.FromMinutes(20).Ticks)
+        {
+            isClockTampered = true;
+            return;
+        }
+
+        rec.LastSeenTicks = Math.Max(rec.LastSeenTicks, currentUtcTicks);
+        if (currentUtcTicks >= rec.ExpiryTicks)
+        {
+            rec.IsExpired = 1;
+            isTrialExpired = true;
+        }
+        PersistTrialRecord(rec);
+    }
 
     private static readonly string[] ValidMasterKeys = new string[]
     {
@@ -89,8 +331,7 @@ public partial class Form1 : Form
                 var savedUrl = key.GetValue(RegValueServerUrl) as string;
                 if (!string.IsNullOrWhiteSpace(savedUrl))
                 {
-                    if (savedUrl.Contains(":3000") || savedUrl.Contains("trycloudflare.com")) currentServerUrl = DefaultLocalUrl;
-                    else currentServerUrl = savedUrl;
+                    currentServerUrl = savedUrl;
                 }
 
                 var savedPath = key.GetValue(RegValueStoragePath) as string;
@@ -178,24 +419,7 @@ public partial class Form1 : Form
 
     private bool CheckClockRollback()
     {
-        try
-        {
-            using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath);
-            var lastStr = key?.GetValue(RegValueLastSeen) as string;
-            DateTime now = DateTime.UtcNow;
-
-            if (!string.IsNullOrEmpty(lastStr) && DateTime.TryParse(lastStr, out var lastSeen))
-            {
-                if (now < lastSeen.AddMinutes(-30))
-                {
-                    return false;
-                }
-            }
-
-            key?.SetValue(RegValueLastSeen, now.ToString("o"));
-        }
-        catch { }
-        return true;
+        return !isClockTampered;
     }
 
     private void BuildUI()
@@ -271,11 +495,22 @@ public partial class Form1 : Form
 
     private async void StartLicenseAndCountdown()
     {
+        InitializeTrialState();
+
         countdownTimer = new System.Windows.Forms.Timer
         {
             Interval = 1000
         };
-        countdownTimer.Tick += (s, e) => UpdateCountdownDisplay();
+        int tickCount = 0;
+        countdownTimer.Tick += (s, e) =>
+        {
+            tickCount++;
+            if (tickCount % 30 == 0)
+            {
+                UpdateLastSeen(DateTime.UtcNow.Ticks);
+            }
+            UpdateCountdownDisplay();
+        };
         countdownTimer.Start();
 
         UpdateCountdownDisplay();
@@ -285,8 +520,13 @@ public partial class Form1 : Form
     private bool IsExpiredOrTampered()
     {
         if (IsSystemLicensed()) return false;
-        if (!CheckClockRollback()) return true;
-        if (DateTime.Now > ExpiryDate) return true;
+        if (isClockTampered) return true;
+        if (isTrialExpired) return true;
+        if (DateTime.UtcNow.Ticks >= effectiveExpiryDate.ToUniversalTime().Ticks)
+        {
+            isTrialExpired = true;
+            return true;
+        }
         return false;
     }
 
@@ -305,21 +545,22 @@ public partial class Form1 : Form
         btnActivate.Visible = true;
         btnDismiss.ForeColor = Color.FromArgb(69, 26, 3);
 
-        if (!CheckClockRollback())
+        if (isClockTampered)
         {
             topBar.BackColor = Color.FromArgb(220, 38, 38);
             lblCountdown.ForeColor = Color.White;
-            lblCountdown.Text = "⚠️ CẢNH BÁO: Phát hiện ngày giờ hệ thống không hợp lệ!";
+            lblCountdown.Text = "⚠️ CẢNH BÁO: Phát hiện ngày giờ hệ thống không hợp lệ! Vui lòng chỉnh lại đúng giờ thực tế.";
             ShowExpiredScreen();
             return;
         }
 
-        var remaining = ExpiryDate - DateTime.Now;
-        if (remaining <= TimeSpan.Zero)
+        var remaining = effectiveExpiryDate - DateTime.Now;
+        if (remaining <= TimeSpan.Zero || isTrialExpired)
         {
+            isTrialExpired = true;
             topBar.BackColor = Color.FromArgb(220, 38, 38);
             lblCountdown.ForeColor = Color.White;
-            lblCountdown.Text = "⚠️ BẢN DÙNG THỬ ĐÃ HẾT HẠN! Vui lòng nhập mã kích hoạt để tiếp tục sử dụng.";
+            lblCountdown.Text = "⚠️ BẢN DÙNG THỬ 3 NGÀY ĐÃ HẾT HẠN! Vui lòng nhập mã kích hoạt để tiếp tục sử dụng.";
             ShowExpiredScreen();
         }
         else
@@ -327,7 +568,7 @@ public partial class Form1 : Form
             topBar.BackColor = Color.FromArgb(245, 158, 11);
             lblCountdown.ForeColor = Color.FromArgb(69, 26, 3);
             string timeStr = $"{(int)remaining.TotalDays} ngày {remaining.Hours:D2} giờ {remaining.Minutes:D2} phút {remaining.Seconds:D2} giây";
-            lblCountdown.Text = $"⏱️ DÙNG THỬ: Còn lại {timeStr} (Hạn: 23:59:59 03/11/2026)";
+            lblCountdown.Text = $"⏱️ DÙNG THỬ 3 NGÀY: Còn lại {timeStr} (Hạn: {effectiveExpiryDate:HH:mm:ss dd/MM/yyyy})";
         }
     }
 
@@ -342,7 +583,7 @@ public partial class Form1 : Form
                 "<div style='font-size:48px;margin-bottom:16px;'>🔒</div>" +
                 "<h1 style='color:#dc2626;font-size:26px;margin-bottom:16px;'>Bản Dùng Thử 3 Ngày Đã Hết Hạn</h1>" +
                 "<p style='font-size:16px;line-height:1.6;color:#64748b;margin-bottom:24px;'>" +
-                "Thời hạn trải nghiệm hệ thống Quản Lý Kho (WMS) đã kết thúc vào ngày <b>03/11/2026</b>.<br/>" +
+                $"Thời hạn trải nghiệm 3 ngày của hệ thống Quản Lý Kho (WMS) đã kết thúc vào <b>{effectiveExpiryDate:HH:mm:ss dd/MM/yyyy}</b>.<br/>" +
                 "Toàn bộ chức năng thao tác kho đã tạm thời khóa bảo vệ.</p>" +
                 "<div style='background:#f1f5f9;border-left:4px solid #3b82f6;padding:16px;text-align:left;border-radius:8px;font-size:15px;color:#334155;margin-bottom:28px;'>" +
                 "<b>Để mở khóa sử dụng vĩnh viễn:</b><br/>" +
@@ -398,10 +639,8 @@ public partial class Form1 : Form
                 try
                 {
                     var msg = e.TryGetWebMessageAsString();
-                    if (msg == "retry_local")
+                    if (msg == "retry_current" || msg == "retry_local")
                     {
-                        currentServerUrl = DefaultLocalUrl;
-                        SaveServerUrl(DefaultLocalUrl);
                         webView.CoreWebView2.Navigate(currentServerUrl);
                     }
                     else if (msg == "open_settings")
@@ -426,24 +665,15 @@ public partial class Form1 : Form
 
                 if (!e.IsSuccess && !IsExpiredOrTampered())
                 {
-                    // 1. Nếu đang kết nối Online / Tunnel mà lỗi -> Tự động chuyển ngay về Localhost
-                    if (currentServerUrl != DefaultLocalUrl)
-                    {
-                        currentServerUrl = DefaultLocalUrl;
-                        SaveServerUrl(DefaultLocalUrl);
-                        webView.CoreWebView2.Navigate(currentServerUrl);
-                        return;
-                    }
-
-                    // 2. Nếu là Localhost mà lỗi (ví dụ docker vừa khởi động lại) -> thử lại 1 lần sau 1.5s
-                    if (retryCount < 2)
+                    // Tự động thử lại kết nối 1 lần sau 2s nếu mạng bị trễ
+                    if (retryCount < 1)
                     {
                         retryCount++;
-                        Task.Delay(1500).ContinueWith(_ =>
+                        Task.Delay(2000).ContinueWith(_ =>
                         {
                             if (!this.IsDisposed && this.IsHandleCreated)
                             {
-                                this.Invoke(() => webView.CoreWebView2?.Navigate(DefaultLocalUrl));
+                                this.Invoke(() => webView.CoreWebView2?.Navigate(currentServerUrl));
                             }
                         });
                         return;
@@ -451,14 +681,14 @@ public partial class Form1 : Form
 
                     retryCount = 0;
                     webView.CoreWebView2.NavigateToString(
-                        "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Lỗi Kết Nối</title></head>" +
+                        "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Lỗi Kết Nối Máy Chủ</title></head>" +
                         "<body style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;text-align:center;padding:60px 20px;background:#f8fafc;color:#1e293b;margin:0;'>" +
                         "<div style='max-width:540px;margin:0 auto;background:#ffffff;padding:36px;border-radius:12px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);border:1px solid #e2e8f0;'>" +
                         "<div style='font-size:42px;margin-bottom:12px;'>⚠️</div>" +
                         "<h2 style='color:#ea580c;margin:0 0 12px;font-size:20px;font-weight:700;'>Chưa Kết Nối Được Đến Máy Chủ Kho</h2>" +
-                        $"<p style='font-size:14px;color:#64748b;line-height:1.6;margin:0 0 20px;'>Địa chỉ máy chủ đang thử kết nối: <br><strong style='color:#0f172a;word-break:break-all;'>{currentServerUrl}</strong></p>" +
+                        $"<p style='font-size:14px;color:#64748b;line-height:1.6;margin:0 0 20px;'>Địa chỉ máy chủ đang kết nối: <br><strong style='color:#0f172a;word-break:break-all;'>{currentServerUrl}</strong></p>" +
                         "<div style='display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:16px;'>" +
-                        "<button onclick=\"window.chrome.webview.postMessage('retry_local')\" style='background:#0284c7;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;'>🔄 Kết Nối Máy Chủ Cục Bộ (Localhost)</button>" +
+                        "<button onclick=\"window.chrome.webview.postMessage('retry_current')\" style='background:#0284c7;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;'>🔄 Thử Kết Nối Lại</button>" +
                         "<button onclick=\"window.chrome.webview.postMessage('open_settings')\" style='background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;'>⚙️ Cài Đặt Máy Chủ</button>" +
                         "</div>" +
                         "<p style='font-size:12.5px;color:#94a3b8;margin:0;'>Mẹo: Bấm <b>F2</b> trên bàn phím bất kỳ lúc nào để mở bảng Cài đặt nhanh.</p>" +
@@ -909,7 +1139,7 @@ public partial class Form1 : Form
         using var form = new Form
         {
             Text = "Kích Hoạt Bản Quyền Chính Thức",
-            Size = new Size(520, 290),
+            Size = new Size(520, 260),
             StartPosition = FormStartPosition.CenterParent,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
@@ -957,30 +1187,6 @@ public partial class Form1 : Form
         };
         btnSubmit.FlatAppearance.BorderSize = 0;
 
-        var btnResetTrial = new Button
-        {
-            Text = "Quay lại chế độ Dùng Thử 3 Ngày (Reset Test)",
-            Location = new Point(130, 200),
-            Size = new Size(240, 30),
-            BackColor = Color.FromArgb(241, 245, 249),
-            ForeColor = Color.FromArgb(71, 85, 105),
-            Font = new Font("Segoe UI", 8.5f),
-            FlatStyle = FlatStyle.Flat,
-            Cursor = Cursors.Hand
-        };
-        btnResetTrial.FlatAppearance.BorderSize = 0;
-        btnResetTrial.Click += (s, e) =>
-        {
-            SaveLicensedStatus(false);
-            MessageBox.Show("Đã chuyển về chế độ Dùng Thử 3 Ngày để kiểm tra!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            form.Close();
-            UpdateCountdownDisplay();
-            if (webView.CoreWebView2 != null && !IsExpiredOrTampered())
-            {
-                webView.CoreWebView2.Navigate(currentServerUrl);
-            }
-        };
-
         btnSubmit.Click += (s, e) =>
         {
             var input = txtKey.Text.Trim();
@@ -1011,7 +1217,6 @@ public partial class Form1 : Form
         form.Controls.Add(txtKey);
         form.Controls.Add(lblStatus);
         form.Controls.Add(btnSubmit);
-        form.Controls.Add(btnResetTrial);
 
         form.ShowDialog(this);
     }
