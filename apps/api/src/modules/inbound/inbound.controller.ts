@@ -102,7 +102,7 @@ export class InboundController {
         draftId: pairing.draft_id,
         lines: (
           await c.query(
-            "SELECT l.id,p.part_no,l.mes_pack_no,l.status FROM inbound_draft_lines l JOIN products p ON p.id=l.product_id WHERE draft_id=$1 AND NOT l.deleted ORDER BY l.created_at",
+            "SELECT l.id, p.part_no, l.mes_pack_no, l.lot_no, l.quantity, l.expired_date, l.status FROM inbound_draft_lines l JOIN products p ON p.id=l.product_id WHERE draft_id=$1 AND NOT l.deleted ORDER BY l.created_at DESC",
             [pairing.draft_id],
           )
         ).rows,

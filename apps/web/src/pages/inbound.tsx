@@ -64,10 +64,33 @@ export function Inbound({ warehouse, user }: PageProps) {
   }, []);
   const input = useRef<any>(null);
   const pendingRequest = useRef<any>(null);
-  const loadList = () =>
-    api("/inbound/drafts").then((rows) =>
-      setDrafts(rows.filter((r: any) => r.warehouse_id === warehouse)),
-    );
+  const selectDraft = async (id: string) => {
+    setTarget(undefined);
+    try {
+      localStorage.setItem(`wms_active_draft_${warehouse}`, id);
+    } catch {}
+    await load(id);
+  };
+
+  const loadList = async () => {
+    try {
+      const rows = await api("/inbound/drafts");
+      const filtered = rows.filter((r: any) => r.warehouse_id === warehouse);
+      setDrafts(filtered);
+
+      const savedDraftId = localStorage.getItem(`wms_active_draft_${warehouse}`);
+      if (savedDraftId && filtered.some((r: any) => r.id === savedDraftId)) {
+        await load(savedDraftId);
+      } else if (!draft && filtered.length > 0) {
+        const firstOpen = filtered.find((d: any) => d.status === "OPEN") || filtered[0];
+        try {
+          localStorage.setItem(`wms_active_draft_${warehouse}`, firstOpen.id);
+        } catch {}
+        await load(firstOpen.id);
+      }
+    } catch {}
+  };
+
   const load = async (id: string) => {
     const d = await api(`/inbound/drafts/${id}`);
     setDraft(d);
@@ -101,6 +124,9 @@ export function Inbound({ warehouse, user }: PageProps) {
         warehouseId: warehouse,
         locationId: loc,
       });
+      try {
+        localStorage.setItem(`wms_active_draft_${warehouse}`, d.id);
+      } catch {}
       await load(d.id);
       await loadList();
       setTarget(undefined);
@@ -176,6 +202,9 @@ export function Inbound({ warehouse, user }: PageProps) {
     try {
       await post(`/inbound/drafts/${draft.id}/confirm`);
       message.success("Đã ghi sổ nhập kho.");
+      try {
+        localStorage.removeItem(`wms_active_draft_${warehouse}`);
+      } catch {}
       await load(draft.id);
       await loadList();
     } catch (e: any) {
@@ -222,10 +251,7 @@ export function Inbound({ warehouse, user }: PageProps) {
           <Select
             placeholder="Mở phiếu nháp có sẵn"
             value={draft?.id}
-            onChange={(id) => {
-              setTarget(undefined);
-              load(id);
-            }}
+            onChange={selectDraft}
             style={{ minWidth: 260 }}
             options={drafts.map((d) => ({
               value: d.id,

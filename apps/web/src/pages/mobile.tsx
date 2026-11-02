@@ -265,9 +265,21 @@ export function MobileScanner() {
         }
       } catch {}
     }, 60000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        if (socket.current && !socket.current.connected) {
+          socket.current.connect();
+        }
+        void state();
+        void flush();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       clearInterval(retry);
       clearInterval(refresh);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       s.disconnect();
       controls.current?.stop();
     };
@@ -343,7 +355,12 @@ export function MobileScanner() {
           className="section-gap"
           value={activeTab}
           onChange={(val) => {
-            setActiveTab(val as "lookup" | "inbound");
+            const nextMode = val as "lookup" | "inbound";
+            setActiveTab(nextMode);
+            if (nextMode === "inbound") {
+              void state();
+              void flush();
+            }
           }}
           options={[
             {
@@ -636,6 +653,52 @@ export function MobileScanner() {
             >
               Gửi mã vào phiếu
             </Button>
+          </Card>
+
+          {/* Danh sách các kiện đã quét vào phiếu */}
+          <Card
+            className="section-gap"
+            title={`📋 Danh Sách Đã Nhận (${lines.length} kiện)`}
+            size="small"
+            style={{ borderRadius: 12 }}
+          >
+            {lines.length === 0 ? (
+              <p style={{ textAlign: "center", color: "#64748b", margin: "10px 0", fontSize: 13 }}>
+                Chưa có mã nào trong phiếu. Hướng camera vào tem để quét.
+              </p>
+            ) : (
+              <div style={{ maxHeight: 280, overflowY: "auto" }}>
+                {lines.map((l: any, index: number) => (
+                  <div
+                    key={l.id || index}
+                    style={{
+                      background: l.status === "COMPLETE" ? "#f0fdf4" : "#fffbeb",
+                      border: l.status === "COMPLETE" ? "1px solid #bbf7d0" : "1px solid #fde68a",
+                      borderRadius: 8,
+                      padding: "8px 12px",
+                      marginBottom: 8,
+                      fontSize: 12.5,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <b style={{ color: "#0f172a" }}>{l.part_no}</b>
+                      <Tag color={l.status === "COMPLETE" ? "green" : "gold"}>
+                        {l.status === "COMPLETE" ? "Đủ thông tin" : "Chờ mã pack"}
+                      </Tag>
+                    </div>
+                    <div style={{ color: "#475569", marginTop: 3 }}>
+                      Pack: <span style={{ fontFamily: "monospace", fontWeight: 600 }}>{l.mes_pack_no || "---"}</span>
+                    </div>
+                    {(l.lot_no || l.quantity) && (
+                      <div style={{ display: "flex", justifyContent: "space-between", color: "#64748b", marginTop: 2 }}>
+                        <span>Lô: <b>{l.lot_no || "---"}</b></span>
+                        <span>SL: <b>{Number(l.quantity || 0).toLocaleString()}</b></span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
           <p className="snapshot">
             Chỉ phát bíp khi máy chủ đã lưu dữ liệu. Mã chờ được giữ trên thiết bị;

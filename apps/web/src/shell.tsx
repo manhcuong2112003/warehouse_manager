@@ -347,26 +347,36 @@ export function WmsApp() {
             </span>
           </div>
           {warehouse ? (
-            <div key={`${page}:${warehouse}`}>
-              {page === "dashboard" ? (
+            <div key={warehouse}>
+              <div style={{ display: page === "dashboard" ? "block" : "none" }}>
                 <Dashboard {...props} />
-              ) : page === "matrix" ? (
+              </div>
+              <div style={{ display: page === "matrix" ? "block" : "none" }}>
                 <OutboundMatrixPage {...props} />
-              ) : page === "inventory" ? (
+              </div>
+              <div style={{ display: page === "inventory" ? "block" : "none" }}>
                 <Inventory {...props} />
-              ) : page === "inbound" ? (
+              </div>
+              <div style={{ display: page === "inbound" ? "block" : "none" }}>
                 <Inbound {...props} />
-              ) : page === "outbound" ? (
+              </div>
+              <div style={{ display: page === "outbound" ? "block" : "none" }}>
                 <Outbound {...props} />
-              ) : page === "imports" ? (
+              </div>
+              <div style={{ display: page === "imports" ? "block" : "none" }}>
                 <Imports {...props} />
-              ) : page === "reports" ? (
+              </div>
+              <div style={{ display: page === "reports" ? "block" : "none" }}>
                 <Reports {...props} />
-              ) : page === "users" ? (
-                <Users />
-              ) : (
-                <Catalog {...props} />
+              </div>
+              {user.role === "ADMIN" && (
+                <div style={{ display: page === "users" ? "block" : "none" }}>
+                  <Users />
+                </div>
               )}
+              <div style={{ display: page === "catalog" ? "block" : "none" }}>
+                <Catalog {...props} />
+              </div>
             </div>
           ) : (
             <p>Chưa được cấp quyền vào kho. Liên hệ quản trị.</p>
