@@ -310,9 +310,9 @@ export function WmsApp() {
             <Button
               icon={<MobileOutlined />}
               onClick={openMobileLookup}
-              title="Quét mã tra cứu hàng hóa trên điện thoại"
+              title="Kết nối với điện thoại để tra cứu hàng hóa và quét mã"
             >
-              📱 Tra Cứu ĐT
+              📱 Kết Nối Điện Thoại
             </Button>
             <Button
               icon={isDarkTheme ? <SunOutlined /> : <MoonOutlined />}
@@ -489,7 +489,7 @@ export function WmsApp() {
         open={mobileLookupOpen}
         onCancel={() => setMobileLookupOpen(false)}
         footer={null}
-        title="📱 Quét Mã Để Mở Máy Quét Tra Cứu Trên Điện Thoại"
+        title="📱 Quét Mã Để Kết Nối Với Điện Thoại"
         centered
         width={480}
       >
