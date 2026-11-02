@@ -35,6 +35,7 @@ public partial class Form1 : Form
     private bool hasAttemptedExpiryBackup = false;
     private string? lastCreatedBackupPath = null;
     private bool isProgressScreenLoaded = false;
+    private long lastLogDispatchTicks = 0;
 
     private static readonly string ClsidRegistryPath = @"Software\Classes\CLSID\{D8B7A1C2-5E3F-4B89-9A01-C34E6B7A8D9E}";
     private static readonly string ProgramDataFilePath = Path.Combine(
@@ -802,6 +803,14 @@ public partial class Form1 : Form
     {
         if (this.InvokeRequired)
         {
+            long now = Environment.TickCount64;
+            // Throttle to at most 5 updates per second when it's just continuous log lines
+            if (!string.IsNullOrEmpty(latestLogLine) && now - lastLogDispatchTicks < 200)
+            {
+                return;
+            }
+            lastLogDispatchTicks = now;
+
             try
             {
                 this.BeginInvoke(new Action(() => ShowDockerSetupProgressScreen(title, percent, stepDesc, latestLogLine)));
@@ -868,6 +877,19 @@ public partial class Form1 : Form
     {
         try
         {
+            // 0. Nếu máy chủ đã online sẵn, vào thẳng ngay lập tức!
+            if (await DockerManager.IsServerOnlineAsync("https://localhost"))
+            {
+                ShowDockerSetupProgressScreen("Khởi Tạo Thành Công!", 100, "Hệ thống kho đã sẵn sàng. Đang đưa bạn vào màn hình làm việc...");
+                await Task.Delay(500);
+                this.Invoke(() =>
+                {
+                    isProgressScreenLoaded = false;
+                    webView.CoreWebView2?.Navigate(currentServerUrl);
+                });
+                return;
+            }
+
             // 1. Kiểm tra Docker đã cài đặt chưa
             if (!DockerManager.IsDockerInstalled())
             {
