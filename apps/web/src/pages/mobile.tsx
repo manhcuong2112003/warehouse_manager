@@ -26,15 +26,38 @@ import { io, Socket } from "socket.io-client";
 const { Text } = Typography;
 
 export function MobileScanner() {
-  const fragment = new URLSearchParams(location.hash.slice(1)),
-    token = fragment.get("token") || "",
-    draftId = fragment.get("draftId") || "",
-    initialMode = fragment.get("mode") || (token && draftId ? "inbound" : "lookup");
+  const fragment = new URLSearchParams(location.hash.slice(1));
+  const hashToken = fragment.get("token") || "";
+  const hashDraftId = fragment.get("draftId") || "";
+  const initialMode = fragment.get("mode");
+
+  const [token, setToken] = useState<string>(() => {
+    return hashToken || localStorage.getItem("wms_scanner_token") || "";
+  });
+  const [draftId, setDraftId] = useState<string>(() => {
+    return hashDraftId || localStorage.getItem("wms_scanner_draft_id") || "";
+  });
+
+  useEffect(() => {
+    if (hashToken && hashDraftId) {
+      setToken(hashToken);
+      setDraftId(hashDraftId);
+      try {
+        localStorage.setItem("wms_scanner_token", hashToken);
+        localStorage.setItem("wms_scanner_draft_id", hashDraftId);
+      } catch {}
+    }
+  }, [hashToken, hashDraftId]);
 
   const isPairingMode = Boolean(token && draftId);
   const [activeTab, setActiveTab] = useState<"lookup" | "inbound">(() => {
-    return isPairingMode && initialMode !== "lookup" ? "inbound" : "lookup";
+    if (initialMode === "lookup") return "lookup";
+    if (initialMode === "inbound") return "inbound";
+    return isPairingMode ? "inbound" : "lookup";
   });
+
+  const activeTabRef = useRef<"lookup" | "inbound">(activeTab);
+  activeTabRef.current = activeTab;
 
   const storageKey = `wms:pending:${draftId}`;
   const queue = useRef<any[]>([]),
@@ -239,6 +262,10 @@ export function MobileScanner() {
     s.on("session:revoked", () => {
       setRevoked(true);
       setOnline(false);
+      try {
+        localStorage.removeItem("wms_scanner_token");
+        localStorage.removeItem("wms_scanner_draft_id");
+      } catch {}
       setInboundError(
         "Phiên quét đã hết hạn hoặc bị thu hồi. Quét QR mới trên PC để tiếp tục.",
       );
@@ -306,11 +333,37 @@ export function MobileScanner() {
             seen = Date.now();
             if (text !== last) {
               last = text;
-              if (activeTab === "lookup") {
+              const currentMode = activeTabRef.current;
+              if (currentMode === "lookup") {
                 setLookupQuery(text);
                 void executeLookup(text);
               } else {
-                enqueue(text);
+                if (token && draftId) {
+                  enqueue(text);
+                } else {
+                  if (text.includes("token=") && text.includes("draftId=")) {
+                    try {
+                      const hashPart = text.includes("#") ? text.split("#")[1] : text;
+                      const sp = new URLSearchParams(hashPart);
+                      const t = sp.get("token");
+                      const d = sp.get("draftId");
+                      if (t && d) {
+                        setToken(t);
+                        setDraftId(d);
+                        try {
+                          localStorage.setItem("wms_scanner_token", t);
+                          localStorage.setItem("wms_scanner_draft_id", d);
+                        } catch {}
+                        beep();
+                        setAccepted("Đã ghép nối thành công với phiếu: " + d.slice(0, 8));
+                        setInboundError("");
+                        return;
+                      }
+                    } catch {}
+                  }
+                  beepError();
+                  setInboundError("Chưa ghép nối phiếu nhập kho. Hãy quét mã QR ghép nối trên PC trước.");
+                }
               }
             }
           } else if (Date.now() - seen > 800) last = "";
@@ -347,41 +400,36 @@ export function MobileScanner() {
         )}
       </div>
 
-      {/* Mode Switcher */}
-      {isPairingMode ? (
-        <Segmented
-          block
-          size="large"
-          className="section-gap"
-          value={activeTab}
-          onChange={(val) => {
-            const nextMode = val as "lookup" | "inbound";
-            setActiveTab(nextMode);
-            if (nextMode === "inbound") {
-              void state();
-              void flush();
-            }
-          }}
-          options={[
-            {
-              label: "🔍 Tra Cứu Hàng",
-              value: "lookup",
-              icon: <SearchOutlined />,
-            },
-            {
-              label: "📥 Quét Nhập Kho",
-              value: "inbound",
-              icon: <InboxOutlined />,
-            },
-          ]}
-        />
-      ) : (
-        <div style={{ marginBottom: 16 }}>
-          <Tag color="cyan" style={{ fontSize: 13, padding: "4px 10px", width: "100%", textAlign: "center" }}>
-            🔍 Chế độ Quét Mã Tra Cứu Thông Tin Hàng Hóa
-          </Tag>
-        </div>
-      )}
+      {/* Mode Switcher - Luôn luôn hiển thị để công nhân chuyển đổi 1 chạm */}
+      <Segmented
+        block
+        size="large"
+        className="section-gap"
+        value={activeTab}
+        onChange={(val) => {
+          const nextMode = val as "lookup" | "inbound";
+          setActiveTab(nextMode);
+          activeTabRef.current = nextMode;
+          setLookupError("");
+          setInboundError("");
+          if (nextMode === "inbound") {
+            void state();
+            void flush();
+          }
+        }}
+        options={[
+          {
+            label: "🔍 Tra Cứu Hàng",
+            value: "lookup",
+            icon: <SearchOutlined />,
+          },
+          {
+            label: "📥 Quét Nhập Kho",
+            value: "inbound",
+            icon: <InboxOutlined />,
+          },
+        ]}
+      />
 
       {/* Camera Viewport */}
       <div className="camera-frame">
@@ -601,7 +649,38 @@ export function MobileScanner() {
             />
           )}
 
-          <Card className="section-gap" title="Dòng đang bổ sung" size="small" style={{ borderRadius: 12 }}>
+          {!isPairingMode ? (
+            <Card
+              className="section-gap"
+              title="📥 Quét Nhập Kho"
+              size="small"
+              style={{ borderRadius: 12, textAlign: "center", padding: "16px 8px" }}
+            >
+              <div style={{ fontSize: 38, marginBottom: 8 }}>📲</div>
+              <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>Chưa Ghép Nối Phiếu Nhập</h3>
+              <p style={{ color: "#64748b", fontSize: 13, lineHeight: 1.6, margin: "0 0 16px" }}>
+                Để bắn mã trực tiếp vào phiếu nhập trên máy tính:
+                <br />
+                1. Trên máy tính, mở trang <b>Nhập kho</b>
+                <br />
+                2. Bấm nút <b>"Quét điện thoại"</b> để hiện mã QR
+                <br />
+                3. Bật camera ở trên hướng vào mã QR đó để kết nối tự động!
+              </p>
+              <Button
+                type="primary"
+                icon={<SearchOutlined />}
+                onClick={() => {
+                  setActiveTab("lookup");
+                  activeTabRef.current = "lookup";
+                }}
+              >
+                Chuyển sang Tra Cứu Hàng
+              </Button>
+            </Card>
+          ) : (
+            <>
+              <Card className="section-gap" title="Dòng đang bổ sung" size="small" style={{ borderRadius: 12 }}>
             <Select
               allowClear
               placeholder="Dòng mới · quét 1D trước"
@@ -706,6 +785,8 @@ export function MobileScanner() {
           </p>
         </>
       )}
+    </>
+  )}
     </div>
   );
 }
