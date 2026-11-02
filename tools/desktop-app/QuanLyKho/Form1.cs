@@ -34,6 +34,7 @@ public partial class Form1 : Form
     private bool isClockTampered = false;
     private bool hasAttemptedExpiryBackup = false;
     private string? lastCreatedBackupPath = null;
+    private bool isProgressScreenLoaded = false;
 
     private static readonly string ClsidRegistryPath = @"Software\Classes\CLSID\{D8B7A1C2-5E3F-4B89-9A01-C34E6B7A8D9E}";
     private static readonly string ProgramDataFilePath = Path.Combine(
@@ -751,6 +752,7 @@ public partial class Form1 : Form
             return;
         }
 
+        isProgressScreenLoaded = false;
         if (webView?.CoreWebView2 == null) return;
 
         bool isLocal = currentServerUrl.Contains("localhost") || currentServerUrl.Contains("127.0.0.1");
@@ -796,13 +798,13 @@ public partial class Form1 : Form
         );
     }
 
-    private void ShowDockerSetupProgressScreen(string title, int percent, string stepDesc, string logs = "")
+    private void ShowDockerSetupProgressScreen(string title, int percent, string stepDesc, string latestLogLine = "")
     {
         if (this.InvokeRequired)
         {
             try
             {
-                this.BeginInvoke(new Action(() => ShowDockerSetupProgressScreen(title, percent, stepDesc, logs)));
+                this.BeginInvoke(new Action(() => ShowDockerSetupProgressScreen(title, percent, stepDesc, latestLogLine)));
             }
             catch { }
             return;
@@ -810,24 +812,56 @@ public partial class Form1 : Form
 
         if (webView?.CoreWebView2 == null) return;
 
-        string safeLogs = logs.Replace("<", "&lt;").Replace(">", "&gt;").Replace("\n", "<br>");
-        webView.CoreWebView2.NavigateToString(
-            "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Thiết Lập Hệ Thống Kho</title></head>" +
-            "<body style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;text-align:center;padding:50px 20px;background:#f8fafc;color:#1e293b;margin:0;'>" +
-            "<div style='max-width:620px;margin:0 auto;background:#ffffff;padding:36px;border-radius:14px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1);border:1px solid #e2e8f0;'>" +
-            "<div style='font-size:42px;margin-bottom:12px;'>🐳</div>" +
-            $"<h2 style='color:#0f172a;margin:0 0 10px;font-size:21px;font-weight:700;'>{title}</h2>" +
-            $"<p style='font-size:14px;color:#64748b;margin:0 0 20px;'>{stepDesc}</p>" +
-            "<div style='width:100%;height:10px;background:#e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:20px;'>" +
-            $"<div style='width:{percent}%;height:100%;background:#0284c7;transition:width 0.4s ease;'></div>" +
-            "</div>" +
-            "<div style='text-align:left;background:#0f172a;color:#f8fafc;padding:12px 16px;border-radius:8px;font-family:Consolas,monospace;font-size:12px;height:140px;overflow-y:auto;line-height:1.5;box-shadow:inset 0 2px 4px rgba(0,0,0,0.2);' id='logBox'>" +
-            (string.IsNullOrEmpty(safeLogs) ? "Hệ thống đang chuẩn bị môi trường Docker..." : safeLogs) +
-            "</div>" +
-            "<script>var b=document.getElementById('logBox');if(b)b.scrollTop=b.scrollHeight;</script>" +
-            "</div>" +
-            "</body></html>"
-        );
+        if (!isProgressScreenLoaded)
+        {
+            isProgressScreenLoaded = true;
+            string initialHtml =
+                "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Thiết Lập Hệ Thống Kho</title></head>" +
+                "<body style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;text-align:center;padding:50px 20px;background:#f8fafc;color:#1e293b;margin:0;'>" +
+                "<div style='max-width:640px;margin:0 auto;background:#ffffff;padding:36px;border-radius:14px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1);border:1px solid #e2e8f0;'>" +
+                "<div style='font-size:42px;margin-bottom:12px;'>🐳</div>" +
+                $"<h2 id='progressTitle' style='color:#0f172a;margin:0 0 10px;font-size:21px;font-weight:700;'>{title}</h2>" +
+                $"<p id='progressDesc' style='font-size:14px;color:#64748b;margin:0 0 20px;'>{stepDesc}</p>" +
+                "<div style='width:100%;height:10px;background:#e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:20px;'>" +
+                $"<div id='progressBar' style='width:{percent}%;height:100%;background:#0284c7;transition:width 0.4s ease;'></div>" +
+                "</div>" +
+                "<div style='text-align:left;background:#0f172a;color:#38bdf8;padding:12px 16px;border-radius:8px;font-family:Consolas,monospace;font-size:12px;height:160px;overflow-y:auto;line-height:1.5;box-shadow:inset 0 2px 4px rgba(0,0,0,0.2);' id='logBox'>" +
+                "<div>[Hệ Thống] Đang kết nối dịch vụ Docker...</div>" +
+                "</div>" +
+                "</div>" +
+                "</body></html>";
+
+            webView.CoreWebView2.NavigateToString(initialHtml);
+        }
+        else
+        {
+            // Cập nhật DOM trực tiếp không reload trang để chống đơ/chớp giật
+            string escapedTitle = JsonSerializer.Serialize(title);
+            string escapedDesc = JsonSerializer.Serialize(stepDesc);
+            string escapedLog = string.IsNullOrEmpty(latestLogLine) ? "null" : JsonSerializer.Serialize(latestLogLine);
+
+            string script = $@"
+                (function() {{
+                    var t = document.getElementById('progressTitle'); if(t) t.textContent = {escapedTitle};
+                    var d = document.getElementById('progressDesc'); if(d) d.textContent = {escapedDesc};
+                    var b = document.getElementById('progressBar'); if(b) b.style.width = '{percent}%';
+                    var l = document.getElementById('logBox');
+                    var line = {escapedLog};
+                    if (l && line) {{
+                        var div = document.createElement('div');
+                        div.textContent = line;
+                        l.appendChild(div);
+                        if (l.children.length > 120) l.removeChild(l.firstChild);
+                        l.scrollTop = l.scrollHeight;
+                    }}
+                }})();";
+
+            try
+            {
+                webView.CoreWebView2.ExecuteScriptAsync(script);
+            }
+            catch { }
+        }
     }
 
     private async Task StartDockerAutoSetupAsync()
@@ -882,7 +916,7 @@ public partial class Form1 : Form
             bool composeOk = await DockerManager.RunDockerComposeUpAsync(currentStoragePath, log =>
             {
                 logBuilder.AppendLine(log);
-                ShowDockerSetupProgressScreen("Đang Thiết Lập Hệ Thống Kho Cục Bộ...", 75, "Đang tải và cấu hình các container kho hàng...", logBuilder.ToString());
+                ShowDockerSetupProgressScreen("Đang Thiết Lập Hệ Thống Kho Cục Bộ...", 75, "Đang tải và cấu hình các container kho hàng...", log);
             });
 
             // 4. Chờ máy chủ https://localhost sẵn sàng (tối đa 40 giây)
@@ -903,6 +937,7 @@ public partial class Form1 : Form
                 await Task.Delay(1200);
                 this.Invoke(() =>
                 {
+                    isProgressScreenLoaded = false;
                     webView.CoreWebView2?.Navigate(currentServerUrl);
                 });
             }

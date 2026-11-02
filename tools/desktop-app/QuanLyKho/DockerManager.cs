@@ -248,7 +248,7 @@ volumes:
                     StartInfo = new ProcessStartInfo
                     {
                         FileName = GetDockerCli(),
-                        Arguments = "compose -f docker-compose.yml up -d",
+                        Arguments = "compose --progress plain -f docker-compose.yml up -d",
                         WorkingDirectory = dockerDir,
                         CreateNoWindow = true,
                         UseShellExecute = false,
