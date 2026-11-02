@@ -114,7 +114,7 @@ function Root() {
       >
         <AntApp>
           <React.Suspense fallback={<div className="loading">Đang tải…</div>}>
-            {location.pathname === "/mobile-scan" ? (
+            {location.pathname === "/mobile-scan" || location.pathname === "/mobile" ? (
               <MobileScanner />
             ) : (
               <WmsApp />
