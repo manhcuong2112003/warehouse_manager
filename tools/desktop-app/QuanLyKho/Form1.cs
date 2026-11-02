@@ -738,34 +738,166 @@ public partial class Form1 : Form
         if (webView?.CoreWebView2 == null) return;
 
         bool isLocal = currentServerUrl.Contains("localhost") || currentServerUrl.Contains("127.0.0.1");
-        string dockerExe = @"C:\Program Files\Docker\Docker\Docker Desktop.exe";
-        bool hasDocker = isLocal && File.Exists(dockerExe);
+        bool isDockerInstalled = DockerManager.IsDockerInstalled();
 
-        string dockerButtonHtml = hasDocker
-            ? "<button onclick=\"window.chrome.webview.postMessage('launch_docker')\" style='background:#2563eb;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;box-shadow:0 2px 4px rgba(37,99,235,0.2);'>🚀 Khởi Động Docker Desktop</button>"
-            : "";
+        string setupButtonHtml = "";
+        if (isLocal)
+        {
+            if (isDockerInstalled)
+            {
+                setupButtonHtml = "<button onclick=\"window.chrome.webview.postMessage('auto_setup_docker')\" style='background:#059669;color:#fff;border:none;padding:11px 22px;border-radius:6px;font-weight:700;cursor:pointer;font-size:14px;box-shadow:0 2px 6px rgba(5,150,105,0.3);'>🚀 Tự Động Khởi Chạy & Thiết Lập Kho Trong Docker</button>";
+            }
+            else
+            {
+                setupButtonHtml = "<button onclick=\"window.chrome.webview.postMessage('download_docker')\" style='background:#2563eb;color:#fff;border:none;padding:11px 22px;border-radius:6px;font-weight:700;cursor:pointer;font-size:14px;box-shadow:0 2px 6px rgba(37,99,235,0.3);'>📥 Tải Docker Desktop Tự Động (Bản Quyền Miễn Phí)</button>";
+            }
+        }
 
         string helpText = isLocal
-            ? "Máy chủ nội bộ (Localhost) chưa phản hồi. Vui lòng đảm bảo Docker Desktop đang chạy trước khi kết nối."
+            ? (isDockerInstalled
+                ? "Đã phát hiện Docker Desktop trên máy. Bạn có thể bấm nút màu xanh bên dưới để app tự động kích hoạt máy chủ và nạp cơ sở dữ liệu kho."
+                : "Hệ thống lưu trữ 100% dữ liệu độc lập trên máy của bạn thông qua Docker. Vui lòng cài Docker Desktop để bắt đầu.")
             : "Không thể kết nối đến địa chỉ máy chủ. Vui lòng kiểm tra đường truyền mạng hoặc cấu hình lại địa chỉ máy chủ.";
 
         webView.CoreWebView2.NavigateToString(
-            "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Lỗi Kết Nối Máy Chủ</title></head>" +
-            "<body style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;text-align:center;padding:60px 20px;background:#f8fafc;color:#1e293b;margin:0;'>" +
-            "<div style='max-width:540px;margin:0 auto;background:#ffffff;padding:36px;border-radius:12px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);border:1px solid #e2e8f0;'>" +
-            "<div style='font-size:42px;margin-bottom:12px;'>⚠️</div>" +
-            "<h2 style='color:#ea580c;margin:0 0 12px;font-size:20px;font-weight:700;'>Chưa Kết Nối Được Đến Máy Chủ Kho</h2>" +
-            $"<p style='font-size:14px;color:#64748b;line-height:1.6;margin:0 0 16px;'>Địa chỉ máy chủ đang kết nối: <br><strong style='color:#0f172a;word-break:break-all;'>{currentServerUrl}</strong></p>" +
-            $"<p style='font-size:13px;color:#475569;background:#f1f5f9;padding:10px 14px;border-radius:8px;margin:0 0 20px;line-height:1.5;'>{helpText}</p>" +
-            "<div style='display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:16px;'>" +
-            dockerButtonHtml +
-            "<button onclick=\"window.chrome.webview.postMessage('retry_current')\" style='background:#0284c7;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;'>🔄 Thử Kết Nối Lại</button>" +
-            "<button onclick=\"window.chrome.webview.postMessage('open_settings')\" style='background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;'>⚙️ Cài Đặt Máy Chủ</button>" +
+            "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Khởi Động Hệ Thống Kho</title></head>" +
+            "<body style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;text-align:center;padding:50px 20px;background:#f8fafc;color:#1e293b;margin:0;'>" +
+            "<div style='max-width:580px;margin:0 auto;background:#ffffff;padding:36px;border-radius:14px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);border:1px solid #e2e8f0;'>" +
+            "<div style='font-size:46px;margin-bottom:12px;'>🏭</div>" +
+            "<h2 style='color:#0f172a;margin:0 0 10px;font-size:21px;font-weight:700;'>Hệ Thống Quản Lý Kho (Local-First)</h2>" +
+            $"<p style='font-size:13.5px;color:#64748b;line-height:1.6;margin:0 0 16px;'>Địa chỉ máy chủ kho đang kết nối: <br><strong style='color:#0f172a;word-break:break-all;'>{currentServerUrl}</strong></p>" +
+            $"<div style='font-size:13.5px;color:#334155;background:#f1f5f9;padding:12px 16px;border-radius:8px;margin:0 0 22px;line-height:1.6;text-align:left;border-left:4px solid #0284c7;'>{helpText}</div>" +
+            "<div style='display:flex;flex-direction:column;gap:12px;align-items:center;margin-bottom:18px;'>" +
+            setupButtonHtml +
+            "<div style='display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:6px;'>" +
+            "<button onclick=\"window.chrome.webview.postMessage('retry_current')\" style='background:#f8fafc;color:#334155;border:1px solid #cbd5e1;padding:9px 16px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13px;'>🔄 Thử Kết Nối Lại</button>" +
+            "<button onclick=\"window.chrome.webview.postMessage('open_settings')\" style='background:#f8fafc;color:#334155;border:1px solid #cbd5e1;padding:9px 16px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13px;'>⚙️ Cài Đặt Máy Chủ</button>" +
             "</div>" +
-            "<p style='font-size:12.5px;color:#94a3b8;margin:0;'>Mẹo: Bấm <b>F2</b> trên bàn phím bất kỳ lúc nào để mở bảng Cài đặt nhanh.</p>" +
+            "</div>" +
+            "<p style='font-size:12.5px;color:#94a3b8;margin:0;'>Mẹo: Bấm phím <b>F2</b> trên bàn phím bất kỳ lúc nào để cấu hình kết nối.</p>" +
             "</div>" +
             "</body></html>"
         );
+    }
+
+    private void ShowDockerSetupProgressScreen(string title, int percent, string stepDesc, string logs = "")
+    {
+        if (webView?.CoreWebView2 == null) return;
+        this.Invoke(() =>
+        {
+            string safeLogs = logs.Replace("<", "&lt;").Replace(">", "&gt;").Replace("\n", "<br>");
+            webView.CoreWebView2.NavigateToString(
+                "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Thiết Lập Hệ Thống Kho</title></head>" +
+                "<body style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;text-align:center;padding:50px 20px;background:#f8fafc;color:#1e293b;margin:0;'>" +
+                "<div style='max-width:620px;margin:0 auto;background:#ffffff;padding:36px;border-radius:14px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1);border:1px solid #e2e8f0;'>" +
+                "<div style='font-size:42px;margin-bottom:12px;'>🐳</div>" +
+                $"<h2 style='color:#0f172a;margin:0 0 10px;font-size:21px;font-weight:700;'>{title}</h2>" +
+                $"<p style='font-size:14px;color:#64748b;margin:0 0 20px;'>{stepDesc}</p>" +
+                "<div style='width:100%;height:10px;background:#e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:20px;'>" +
+                $"<div style='width:{percent}%;height:100%;background:#0284c7;transition:width 0.4s ease;'></div>" +
+                "</div>" +
+                "<div style='text-align:left;background:#0f172a;color:#f8fafc;padding:12px 16px;border-radius:8px;font-family:Consolas,monospace;font-size:12px;height:140px;overflow-y:auto;line-height:1.5;box-shadow:inset 0 2px 4px rgba(0,0,0,0.2);' id='logBox'>" +
+                (string.IsNullOrEmpty(safeLogs) ? "Hệ thống đang chuẩn bị môi trường Docker..." : safeLogs) +
+                "</div>" +
+                "<script>var b=document.getElementById('logBox');if(b)b.scrollTop=b.scrollHeight;</script>" +
+                "</div>" +
+                "</body></html>"
+            );
+        });
+    }
+
+    private async Task StartDockerAutoSetupAsync()
+    {
+        try
+        {
+            // 1. Kiểm tra Docker đã cài đặt chưa
+            if (!DockerManager.IsDockerInstalled())
+            {
+                this.Invoke(() =>
+                {
+                    MessageBox.Show("Không tìm thấy Docker Desktop trên máy tính của bạn.\nVui lòng bấm 'Tải Docker Desktop Tự Động' để cài đặt trước khi tiếp tục.", "Yêu Cầu Docker Desktop", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    ShowConnectionErrorScreen();
+                });
+                return;
+            }
+
+            // 2. Kiểm tra Docker Desktop đã bật chưa
+            ShowDockerSetupProgressScreen("Đang Khởi Động Docker Desktop...", 20, "Đang kiểm tra kết nối dịch vụ Docker daemon ngầm...");
+            bool isRunning = await DockerManager.IsDockerRunningAsync();
+            if (!isRunning)
+            {
+                ShowDockerSetupProgressScreen("Đang Đánh Thức Docker Desktop...", 30, "Đang mở Docker Desktop trong Windows. Quá trình này mất khoảng 20-40 giây...");
+                DockerManager.StartDockerDesktop();
+
+                // Chờ Docker Desktop sẵn sàng (tối đa 60 giây)
+                int waitCount = 0;
+                while (waitCount < 24)
+                {
+                    await Task.Delay(2500);
+                    waitCount++;
+                    isRunning = await DockerManager.IsDockerRunningAsync();
+                    if (isRunning) break;
+                    ShowDockerSetupProgressScreen("Đang Đánh Thức Docker Desktop...", 30 + waitCount * 2, $"Đang chờ Docker khởi động xong... ({waitCount * 2}s)");
+                }
+            }
+
+            if (!isRunning)
+            {
+                this.Invoke(() =>
+                {
+                    MessageBox.Show("Docker Desktop đang khởi động chậm. Vui lòng mở Docker Desktop ngoài màn hình Desktop rồi thử lại.", "Thông Báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    ShowConnectionErrorScreen();
+                });
+                return;
+            }
+
+            // 3. Tiến hành chạy docker compose up -d
+            var logBuilder = new StringBuilder();
+            ShowDockerSetupProgressScreen("Đang Thiết Lập Hệ Thống Kho Cục Bộ...", 65, "Đang nạp cơ sở dữ liệu PostgreSQL và dịch vụ kho ngầm...");
+
+            bool composeOk = await DockerManager.RunDockerComposeUpAsync(currentStoragePath, log =>
+            {
+                logBuilder.AppendLine(log);
+                ShowDockerSetupProgressScreen("Đang Thiết Lập Hệ Thống Kho Cục Bộ...", 75, "Đang cấu hình các container kho hàng...", logBuilder.ToString());
+            });
+
+            // 4. Chờ máy chủ https://localhost sẵn sàng
+            ShowDockerSetupProgressScreen("Đang Kết Nối Vào Hệ Thống...", 90, "Đang kiểm tra cổng dịch vụ máy chủ...");
+            int checkServerCount = 0;
+            bool serverReady = false;
+            while (checkServerCount < 15)
+            {
+                await Task.Delay(2000);
+                checkServerCount++;
+                serverReady = await DockerManager.IsServerOnlineAsync("https://localhost");
+                if (serverReady) break;
+            }
+
+            if (serverReady)
+            {
+                ShowDockerSetupProgressScreen("Khởi Tạo Thành Công!", 100, "Hệ thống kho đã sẵn sàng. Đang đưa bạn vào màn hình làm việc...");
+                await Task.Delay(1200);
+                this.Invoke(() =>
+                {
+                    webView.CoreWebView2?.Navigate(currentServerUrl);
+                });
+            }
+            else
+            {
+                this.Invoke(() =>
+                {
+                    ShowConnectionErrorScreen();
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            this.Invoke(() =>
+            {
+                MessageBox.Show("Lỗi thiết lập Docker tự động: " + ex.Message, "Thông Báo Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                ShowConnectionErrorScreen();
+            });
+        }
     }
 
     private async Task InitializeWebViewAsync()
@@ -836,6 +968,21 @@ public partial class Form1 : Form
                         {
                             await PerformExpiryBackupAsync(true);
                         });
+                    }
+                    else if (msg == "auto_setup_docker")
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            await StartDockerAutoSetupAsync();
+                        });
+                    }
+                    else if (msg == "download_docker")
+                    {
+                        try
+                        {
+                            Process.Start(new ProcessStartInfo("https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe") { UseShellExecute = true });
+                        }
+                        catch { }
                     }
                     else if (msg == "launch_docker")
                     {
