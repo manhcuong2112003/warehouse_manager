@@ -12,6 +12,7 @@ import {
   Statistic,
   Table,
   Tag,
+  Typography,
 } from "antd";
 import {
   CheckOutlined,
@@ -22,6 +23,12 @@ import {
 import { io } from "socket.io-client";
 import QRCode from "qrcode";
 import { api, post, fmt } from "../api";
+import {
+  resolveInitialHostIp,
+  getDetectedHostIps,
+  saveLanIp,
+  buildMobileScanUrl,
+} from "../lan-utils";
 import type { PageProps } from "./operations";
 export function Inbound({ warehouse, user }: PageProps) {
   const { message, modal } = App.useApp();
@@ -34,7 +41,22 @@ export function Inbound({ warehouse, user }: PageProps) {
     [qr, setQr] = useState(""),
     [pairOpen, setPairOpen] = useState(false),
     [busy, setBusy] = useState(false),
-    [feedback, setFeedback] = useState("");
+    [feedback, setFeedback] = useState(""),
+    [hostLanIp, setHostLanIp] = useState<string>(() => resolveInitialHostIp()),
+    [detectedIps, setDetectedIps] = useState<string[]>(() => getDetectedHostIps()),
+    [pairToken, setPairToken] = useState<string>(""),
+    [fullPairUrl, setFullPairUrl] = useState<string>("");
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      if (e.detail?.ips && Array.isArray(e.detail.ips)) {
+        setDetectedIps(e.detail.ips);
+        setHostLanIp((prev) => prev || e.detail.ips[0] || "");
+      }
+    };
+    window.addEventListener("wms-host-ips", handler);
+    return () => window.removeEventListener("wms-host-ips", handler);
+  }, []);
   const input = useRef<any>(null);
   const pendingRequest = useRef<any>(null);
   const loadList = () =>
@@ -109,18 +131,35 @@ export function Inbound({ warehouse, user }: PageProps) {
       setBusy(false);
     }
   };
+  const generatePairQr = async (tokenVal: string, draftIdVal: string, ipVal: string) => {
+    const hash = new URLSearchParams({
+      token: tokenVal,
+      draftId: draftIdVal,
+    }).toString();
+    const fullUrl = buildMobileScanUrl("/mobile-scan", hash, ipVal);
+    setFullPairUrl(fullUrl);
+    setQr(await QRCode.toDataURL(fullUrl, { width: 300, margin: 1 }));
+  };
+
   const pair = async () => {
     try {
       const p = await post(`/inbound/drafts/${draft.id}/pair`);
-      const url = new URL("/mobile-scan", location.origin);
-      url.hash = new URLSearchParams({
-        token: p.token,
-        draftId: draft.id,
-      }).toString();
-      setQr(await QRCode.toDataURL(url.toString(), { width: 300, margin: 1 }));
+      setPairToken(p.token);
+      const ip = hostLanIp || resolveInitialHostIp() || (detectedIps[0] ?? "");
+      setHostLanIp(ip);
+      await generatePairQr(p.token, draft.id, ip);
       setPairOpen(true);
     } catch (e: any) {
       message.error(e.message);
+    }
+  };
+
+  const handlePairIpChange = async (newIp: string) => {
+    const trimmed = newIp.trim();
+    setHostLanIp(trimmed);
+    saveLanIp(trimmed);
+    if (pairToken && draft?.id) {
+      await generatePairQr(pairToken, draft.id, trimmed);
     }
   };
   const confirm = async () => {
@@ -435,7 +474,8 @@ export function Inbound({ warehouse, user }: PageProps) {
       <Modal
         open={pairOpen}
         onCancel={() => setPairOpen(false)}
-        title="Ghép nối điện thoại quét mã"
+        title="📱 Ghép nối điện thoại quét mã nhập kho"
+        width={480}
         footer={
           <Button
             danger
@@ -449,15 +489,85 @@ export function Inbound({ warehouse, user }: PageProps) {
           </Button>
         }
       >
-        <div className="qr">
-          <img src={qr} alt="Mã QR ghép nối điện thoại" />
-          <p>
-            Điện thoại phải truy cập được cùng địa chỉ máy chủ. Camera web cần
-            HTTPS tin cậy trên thiết bị.
-          </p>
-          <small>
-            Phiên quét có hạn 30 phút và chỉ được thêm dữ liệu vào phiếu này.
-          </small>
+        <div style={{ textAlign: "center", padding: "8px 0" }}>
+          {/* Cấu hình IP máy tính trong mạng Wifi */}
+          <div
+            style={{
+              textAlign: "left",
+              background: "#f1f5f9",
+              padding: "10px 14px",
+              borderRadius: 8,
+              border: "1px solid #cbd5e1",
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <b style={{ fontSize: 13, color: "#0f172a" }}>🌐 IP máy chủ kho (trong Wifi):</b>
+              {detectedIps.length > 0 && (
+                <Tag color="cyan">Tự động nhận diện</Tag>
+              )}
+            </div>
+            <Input
+              value={hostLanIp}
+              onChange={(e) => handlePairIpChange(e.target.value)}
+              placeholder="Nhập IP máy tính (vd: 10.2.80.86 hoặc 192.168.1.10)"
+              style={{ fontWeight: 600 }}
+              allowClear
+            />
+            {detectedIps.length > 0 && (
+              <div style={{ marginTop: 6, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                <small style={{ color: "#64748b" }}>IP tìm thấy:</small>
+                {detectedIps.map((ip) => (
+                  <Tag
+                    key={ip}
+                    color={hostLanIp === ip ? "blue" : "default"}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => handlePairIpChange(ip)}
+                  >
+                    {ip}
+                  </Tag>
+                ))}
+              </div>
+            )}
+            <small style={{ display: "block", color: "#64748b", marginTop: 6, lineHeight: 1.4 }}>
+              💡 Điện thoại và máy tính cần kết nối chung một mạng Wifi (hoặc điện thoại bật Điểm phát sóng/Hotspot cho máy tính).
+            </small>
+          </div>
+
+          {/* QR image */}
+          {qr && (
+            <img
+              src={qr}
+              alt="Mã QR ghép nối điện thoại"
+              style={{
+                width: 230,
+                height: 230,
+                borderRadius: 12,
+                border: "1px solid #e2e8f0",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+              }}
+            />
+          )}
+
+          {fullPairUrl && (
+            <div style={{ marginTop: 12 }}>
+              <Typography.Text copyable={{ text: fullPairUrl }} style={{ fontSize: 13, color: "#0284c7", fontWeight: 600 }}>
+                {fullPairUrl}
+              </Typography.Text>
+            </div>
+          )}
+
+          <Alert
+            style={{ marginTop: 14, textAlign: "left" }}
+            type="info"
+            showIcon
+            message="Lưu ý khi điện thoại mở lần đầu:"
+            description={
+              <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                Nếu điện thoại báo <b>"Kết nối không phải là riêng tư"</b>, hãy bấm <b>"Nâng cao" (Advanced)</b> ➔ chọn <b>"Tiếp tục truy cập (không an toàn)"</b> để vào máy quét.
+              </div>
+            }
+          />
         </div>
       </Modal>
     </>

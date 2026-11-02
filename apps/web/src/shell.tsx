@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  Alert,
   App,
   Button,
   Form,
@@ -12,7 +13,14 @@ import {
   Space,
   Spin,
   Tag,
+  Typography,
 } from "antd";
+import {
+  resolveInitialHostIp,
+  getDetectedHostIps,
+  saveLanIp,
+  buildMobileScanUrl,
+} from "./lan-utils";
 import {
   DashboardOutlined,
   InboxOutlined,
@@ -55,17 +63,42 @@ export function WmsApp() {
       return localStorage.getItem("wms_dark") === "true";
     }),
     [mobileLookupOpen, setMobileLookupOpen] = useState(false),
-    [lookupQrUrl, setLookupQrUrl] = useState<string>("");
+    [lookupQrUrl, setLookupQrUrl] = useState<string>(""),
+    [hostLanIp, setHostLanIp] = useState<string>(() => resolveInitialHostIp()),
+    [detectedIps, setDetectedIps] = useState<string[]>(() => getDetectedHostIps()),
+    [fullScanUrl, setFullScanUrl] = useState<string>("");
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      if (e.detail?.ips && Array.isArray(e.detail.ips)) {
+        setDetectedIps(e.detail.ips);
+        setHostLanIp((prev) => prev || e.detail.ips[0] || "");
+      }
+    };
+    window.addEventListener("wms-host-ips", handler);
+    return () => window.removeEventListener("wms-host-ips", handler);
+  }, []);
+
+  const generateLookupQr = async (ipToUse: string) => {
+    try {
+      const fullUrl = buildMobileScanUrl("/mobile-scan", "mode=lookup", ipToUse);
+      setFullScanUrl(fullUrl);
+      setLookupQrUrl(await QRCode.toDataURL(fullUrl, { width: 300, margin: 1 }));
+    } catch {}
+  };
 
   const openMobileLookup = async () => {
-    try {
-      const url = new URL("/mobile-scan", location.origin);
-      url.hash = "mode=lookup";
-      setLookupQrUrl(
-        await QRCode.toDataURL(url.toString(), { width: 300, margin: 1 }),
-      );
-      setMobileLookupOpen(true);
-    } catch {}
+    const ip = hostLanIp || resolveInitialHostIp() || (detectedIps[0] ?? "");
+    setHostLanIp(ip);
+    await generateLookupQr(ip);
+    setMobileLookupOpen(true);
+  };
+
+  const handleIpChange = async (newIp: string) => {
+    const trimmed = newIp.trim();
+    setHostLanIp(trimmed);
+    saveLanIp(trimmed);
+    await generateLookupQr(trimmed);
   };
 
   const entries = [
@@ -439,46 +472,89 @@ export function WmsApp() {
         footer={null}
         title="📱 Quét Mã Để Mở Máy Quét Tra Cứu Trên Điện Thoại"
         centered
+        width={480}
       >
-        <div style={{ textAlign: "center", padding: "16px 0" }}>
+        <div style={{ textAlign: "center", padding: "8px 0" }}>
+          {/* Cấu hình IP máy tính trong mạng Wifi */}
+          <div
+            style={{
+              textAlign: "left",
+              background: isDarkTheme ? "#1f1f1f" : "#f1f5f9",
+              padding: "10px 14px",
+              borderRadius: 8,
+              border: isDarkTheme ? "1px solid #333" : "1px solid #cbd5e1",
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <b style={{ fontSize: 13 }}>🌐 Địa chỉ IP máy tính (trong mạng Wifi):</b>
+              {detectedIps.length > 0 && (
+                <Tag color="cyan">Tự động nhận diện</Tag>
+              )}
+            </div>
+            <Input
+              value={hostLanIp}
+              onChange={(e) => handleIpChange(e.target.value)}
+              placeholder="Nhập IP máy tính (vd: 10.2.80.86 hoặc 192.168.1.10)"
+              style={{ fontWeight: 600 }}
+              allowClear
+            />
+            {detectedIps.length > 0 && (
+              <div style={{ marginTop: 6, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                <small style={{ color: "#64748b" }}>IP tìm thấy:</small>
+                {detectedIps.map((ip) => (
+                  <Tag
+                    key={ip}
+                    color={hostLanIp === ip ? "blue" : "default"}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => handleIpChange(ip)}
+                  >
+                    {ip}
+                  </Tag>
+                ))}
+              </div>
+            )}
+            <small style={{ display: "block", color: "#64748b", marginTop: 6, lineHeight: 1.4 }}>
+              💡 Điện thoại và máy tính cần kết nối chung một mạng Wifi (hoặc điện thoại bật Điểm phát sóng/Hotspot cho máy tính).
+            </small>
+          </div>
+
+          {/* Ảnh mã QR */}
           {lookupQrUrl && (
             <img
               src={lookupQrUrl}
               alt="QR Code"
               style={{
-                width: 240,
-                height: 240,
+                width: 230,
+                height: 230,
                 borderRadius: 12,
                 border: "1px solid #e2e8f0",
                 boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
               }}
             />
           )}
-          <div
-            style={{
-              marginTop: 16,
-              textAlign: "left",
-              background: isDarkTheme ? "#1f1f1f" : "#f8fafc",
-              padding: "12px 16px",
-              borderRadius: 8,
-              border: isDarkTheme ? "1px solid #333" : "1px solid #e2e8f0",
-              fontSize: 13.5,
-              color: isDarkTheme ? "#e2e8f0" : "#334155",
-              lineHeight: 1.6,
-            }}
-          >
-            <b>Hướng dẫn sử dụng máy quét điện thoại:</b>
-            <br />
-            1. Mở camera điện thoại quét mã QR ở trên.
-            <br />
-            2. Trình duyệt điện thoại sẽ mở máy quét thông minh.
-            <br />
-            3. Hướng camera vào bất kỳ tem hàng nào:
-            <ul style={{ margin: "4px 0 0", paddingLeft: 20, color: "#64748b" }}>
-              <li>Quét tem 2D MES Pack: xem ngay số lô, vị trí kệ, hạn dùng và tình trạng còn hạn/cận hạn.</li>
-              <li>Quét Barcode 1D (Part No/Lot No): xem tổng tồn kho, số lượng khả dụng xuất và các kiện theo FEFO.</li>
-            </ul>
-          </div>
+
+          {/* Đường dẫn trực tiếp có nút sao chép */}
+          {fullScanUrl && (
+            <div style={{ marginTop: 12 }}>
+              <Typography.Text copyable={{ text: fullScanUrl }} style={{ fontSize: 13, color: "#0284c7", fontWeight: 600 }}>
+                {fullScanUrl}
+              </Typography.Text>
+            </div>
+          )}
+
+          {/* Hướng dẫn vượt cảnh báo SSL lần đầu */}
+          <Alert
+            style={{ marginTop: 14, textAlign: "left" }}
+            type="info"
+            showIcon
+            message="Lưu ý khi điện thoại mở lần đầu:"
+            description={
+              <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                Nếu điện thoại báo <b>"Kết nối không phải là riêng tư"</b>, hãy bấm <b>"Nâng cao" (Advanced)</b> ➔ chọn <b>"Tiếp tục truy cập (không an toàn)"</b> để vào máy quét.
+              </div>
+            }
+          />
         </div>
       </Modal>
     </Layout>

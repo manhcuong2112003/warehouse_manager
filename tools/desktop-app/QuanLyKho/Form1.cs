@@ -5,8 +5,11 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -908,6 +911,14 @@ public partial class Form1 : Form
             var env = await CoreWebView2Environment.CreateAsync(null, null, options);
             await webView.EnsureCoreWebView2Async(env);
 
+            try
+            {
+                var localIps = GetLocalIPv4Addresses();
+                var ipsJson = JsonSerializer.Serialize(localIps);
+                await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync($"window.__HOST_LAN_IPS__ = {ipsJson};");
+            }
+            catch { }
+
             webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
@@ -1006,6 +1017,7 @@ public partial class Form1 : Form
                 ApplyThemeToWebView();
                 ApplyFontSizeToWebView();
                 ApplyLanguageToWebView();
+                InjectHostLanIps();
 
                 if (e.IsSuccess)
                 {
@@ -1085,6 +1097,69 @@ public partial class Form1 : Form
             }
             catch { }
         }
+    }
+
+    private void InjectHostLanIps()
+    {
+        if (webView?.CoreWebView2 != null)
+        {
+            try
+            {
+                var ips = GetLocalIPv4Addresses();
+                var json = JsonSerializer.Serialize(ips);
+                string script = $"window.__HOST_LAN_IPS__ = {json}; " +
+                                $"window.dispatchEvent(new CustomEvent('wms-host-ips', {{ detail: {{ ips: {json} }} }}));";
+                webView.CoreWebView2.ExecuteScriptAsync(script);
+            }
+            catch { }
+        }
+    }
+
+    public static string[] GetLocalIPv4Addresses()
+    {
+        var list = new List<string>();
+        try
+        {
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != OperationalStatus.Up ||
+                    ni.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+                {
+                    continue;
+                }
+
+                var desc = (ni.Description ?? "").ToLowerInvariant();
+                var name = (ni.Name ?? "").ToLowerInvariant();
+
+                if (desc.Contains("virtual") || desc.Contains("pseudo") || desc.Contains("vethernet") ||
+                    name.Contains("vethernet") || desc.Contains("bluetooth") || desc.Contains("hyper-v") ||
+                    desc.Contains("wsl") || name.Contains("wsl") || desc.Contains("docker"))
+                {
+                    continue;
+                }
+
+                foreach (var ip in ni.GetIPProperties().UnicastAddresses)
+                {
+                    if (ip.Address.AddressFamily == AddressFamily.InterNetwork)
+                    {
+                        var ipStr = ip.Address.ToString();
+                        if (!ipStr.StartsWith("127.") && !ipStr.StartsWith("169.254."))
+                        {
+                            if (ni.NetworkInterfaceType == NetworkInterfaceType.Wireless80211)
+                            {
+                                list.Insert(0, ipStr);
+                            }
+                            else
+                            {
+                                list.Add(ipStr);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
+        return list.Distinct().ToArray();
     }
 
     public void ShowUnifiedSettingsDialog()
