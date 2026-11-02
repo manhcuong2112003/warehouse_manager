@@ -9,13 +9,30 @@ namespace QuanLyKho;
 
 public static class DockerManager
 {
-    private static readonly string DockerExePath = @"C:\Program Files\Docker\Docker\Docker Desktop.exe";
-    private static readonly string DockerCliFallback = @"C:\Program Files\Docker\Docker\resources\bin\docker.exe";
+    private static readonly string[] PossibleDockerExePaths = new[]
+    {
+        @"C:\Program Files\Docker\Docker\Docker Desktop.exe",
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Docker", "Docker", "Docker Desktop.exe"),
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Docker", "Docker", "Docker Desktop.exe")
+    };
+
+    private static readonly string[] PossibleDockerCliPaths = new[]
+    {
+        @"C:\Program Files\Docker\Docker\resources\bin\docker.exe",
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Docker", "Docker", "resources", "bin", "docker.exe"),
+        @"C:\Program Files\Docker\Docker\resources\docker.exe"
+    };
 
     public static bool IsDockerInstalled()
     {
-        if (File.Exists(DockerExePath)) return true;
-        if (File.Exists(DockerCliFallback)) return true;
+        foreach (var p in PossibleDockerExePaths)
+        {
+            if (File.Exists(p)) return true;
+        }
+        foreach (var p in PossibleDockerCliPaths)
+        {
+            if (File.Exists(p)) return true;
+        }
         try
         {
             using var proc = new Process
@@ -70,15 +87,18 @@ public static class DockerManager
 
     public static bool StartDockerDesktop()
     {
-        try
+        foreach (var p in PossibleDockerExePaths)
         {
-            if (File.Exists(DockerExePath))
+            try
             {
-                Process.Start(new ProcessStartInfo(DockerExePath) { UseShellExecute = true });
-                return true;
+                if (File.Exists(p))
+                {
+                    Process.Start(new ProcessStartInfo(p) { UseShellExecute = true });
+                    return true;
+                }
             }
+            catch { }
         }
-        catch { }
         return false;
     }
 
@@ -105,7 +125,10 @@ public static class DockerManager
 
     public static string GetDockerCli()
     {
-        if (File.Exists(DockerCliFallback)) return DockerCliFallback;
+        foreach (var p in PossibleDockerCliPaths)
+        {
+            if (File.Exists(p)) return p;
+        }
         return "docker";
     }
 
@@ -200,6 +223,7 @@ services:
     restart: unless-stopped
     ports:
       - ""443:443""
+      - ""80:80""
     volumes:
       - ./certs:/etc/nginx/certs:ro
     depends_on:
@@ -248,7 +272,7 @@ volumes:
                 proc.BeginOutputReadLine();
                 proc.BeginErrorReadLine();
 
-                bool finished = proc.WaitForExit(180000); // 3 minutes timeout
+                bool finished = proc.WaitForExit(300000); // 5 minutes timeout for image pull & startup
                 return finished && proc.ExitCode == 0;
             }
             catch (Exception ex)
