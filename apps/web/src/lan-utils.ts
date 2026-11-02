@@ -23,13 +23,18 @@ export function getDetectedHostIps(): string[] {
 }
 
 export function resolveInitialHostIp(): string {
+  const detected = getDetectedHostIps();
   const saved = getSavedLanIp();
-  if (saved && saved !== "localhost" && saved !== "127.0.0.1") {
+  // Nếu IP đã lưu vẫn nằm trong danh sách IP mạng thực tế đang kết nối thì giữ nguyên
+  if (saved && detected.includes(saved)) {
     return saved;
   }
-  const detected = getDetectedHostIps();
+  // Nếu đổi mạng (hoặc chưa lưu), luôn ưu tiên IP mạng thực tế phát hiện được
   if (detected.length > 0) {
     return detected[0];
+  }
+  if (saved && saved !== "localhost" && saved !== "127.0.0.1") {
+    return saved;
   }
   const hostname = location.hostname;
   if (hostname && hostname !== "localhost" && hostname !== "127.0.0.1") {
@@ -52,3 +57,4 @@ export function buildMobileScanUrl(path: string, hash: string, customIp?: string
   }
   return url.toString();
 }
+

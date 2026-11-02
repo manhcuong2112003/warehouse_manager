@@ -51,7 +51,12 @@ export function Inbound({ warehouse, user }: PageProps) {
     const handler = (e: any) => {
       if (e.detail?.ips && Array.isArray(e.detail.ips)) {
         setDetectedIps(e.detail.ips);
-        setHostLanIp((prev) => prev || e.detail.ips[0] || "");
+        setHostLanIp((prev) => {
+          if (!prev || !e.detail.ips.includes(prev)) {
+            return e.detail.ips[0] || "";
+          }
+          return prev;
+        });
       }
     };
     window.addEventListener("wms-host-ips", handler);
@@ -145,7 +150,11 @@ export function Inbound({ warehouse, user }: PageProps) {
     try {
       const p = await post(`/inbound/drafts/${draft.id}/pair`);
       setPairToken(p.token);
-      const ip = hostLanIp || resolveInitialHostIp() || (detectedIps[0] ?? "");
+      const fresh = getDetectedHostIps();
+      if (fresh.length > 0) {
+        setDetectedIps(fresh);
+      }
+      const ip = resolveInitialHostIp() || (fresh[0] ?? hostLanIp);
       setHostLanIp(ip);
       await generatePairQr(p.token, draft.id, ip);
       setPairOpen(true);

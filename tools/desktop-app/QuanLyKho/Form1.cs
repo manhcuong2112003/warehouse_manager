@@ -313,6 +313,7 @@ public partial class Form1 : Form
         this.KeyDown += Form1_KeyDown;
 
         EnsureDesktopShortcut(false);
+        Task.Run(() => EnsureFirewallRule());
 
         LoadSavedSettings();
         BuildUI();
@@ -1160,6 +1161,37 @@ public partial class Form1 : Form
         }
         catch { }
         return list.Distinct().ToArray();
+    }
+
+    public static void EnsureFirewallRule()
+    {
+        try
+        {
+            using var check = Process.Start(new ProcessStartInfo
+            {
+                FileName = "netsh",
+                Arguments = "advfirewall firewall show rule name=\"QuanLyKho WMS Web Server\"",
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true
+            });
+            check?.WaitForExit();
+            if (check?.ExitCode != 0)
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "netsh",
+                    Arguments = "advfirewall firewall add rule name=\"QuanLyKho WMS Web Server\" dir=in action=allow protocol=TCP localport=443,80 profile=any",
+                    Verb = "runas",
+                    UseShellExecute = true,
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden
+                };
+                var p = Process.Start(psi);
+                p?.WaitForExit(3000);
+            }
+        }
+        catch { }
     }
 
     public void ShowUnifiedSettingsDialog()
