@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Linq;
+using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -26,6 +29,8 @@ public partial class Form1 : Form
     private DateTime effectiveExpiryDate = DateTime.Now.AddDays(TrialDurationDays);
     private bool isTrialExpired = false;
     private bool isClockTampered = false;
+    private bool hasAttemptedExpiryBackup = false;
+    private string? lastCreatedBackupPath = null;
 
     private static readonly string ClsidRegistryPath = @"Software\Classes\CLSID\{D8B7A1C2-5E3F-4B89-9A01-C34E6B7A8D9E}";
     private static readonly string ProgramDataFilePath = Path.Combine(
@@ -293,7 +298,6 @@ public partial class Form1 : Form
     private int currentFontSize = 14;
     private double currentZoomFactor = 1.0;
     private string currentLang = "vi";
-    private int retryCount = 0;
 
     public Form1()
     {
@@ -550,6 +554,7 @@ public partial class Form1 : Form
             topBar.BackColor = Color.FromArgb(220, 38, 38);
             lblCountdown.ForeColor = Color.White;
             lblCountdown.Text = "⚠️ CẢNH BÁO: Phát hiện ngày giờ hệ thống không hợp lệ! Vui lòng chỉnh lại đúng giờ thực tế.";
+            TriggerExpiryBackupIfNeeded();
             ShowExpiredScreen();
             return;
         }
@@ -561,6 +566,7 @@ public partial class Form1 : Form
             topBar.BackColor = Color.FromArgb(220, 38, 38);
             lblCountdown.ForeColor = Color.White;
             lblCountdown.Text = "⚠️ BẢN DÙNG THỬ 3 NGÀY ĐÃ HẾT HẠN! Vui lòng nhập mã kích hoạt để tiếp tục sử dụng.";
+            TriggerExpiryBackupIfNeeded();
             ShowExpiredScreen();
         }
         else
@@ -572,29 +578,194 @@ public partial class Form1 : Form
         }
     }
 
+    private void TriggerExpiryBackupIfNeeded()
+    {
+        if (!hasAttemptedExpiryBackup)
+        {
+            hasAttemptedExpiryBackup = true;
+            _ = Task.Run(async () =>
+            {
+                await PerformExpiryBackupAsync(false);
+            });
+        }
+    }
+
     private void ShowExpiredScreen()
     {
         if (webView.CoreWebView2 != null)
         {
+            string backupDir = Path.Combine(currentStoragePath, "Backups");
+            string? latestBackup = lastCreatedBackupPath;
+            if (string.IsNullOrEmpty(latestBackup) && Directory.Exists(backupDir))
+            {
+                var files = Directory.GetFiles(backupDir, "BaoCao_Backup_KhiHetHan_*.xlsx");
+                if (files.Length > 0)
+                {
+                    latestBackup = files.OrderByDescending(f => File.GetCreationTime(f)).FirstOrDefault();
+                }
+            }
+
+            string backupHtmlSection;
+            if (!string.IsNullOrEmpty(latestBackup) && File.Exists(latestBackup))
+            {
+                string safePath = latestBackup.Replace("\\", "/");
+                backupHtmlSection = 
+                    "<div style='background:#ecfdf5;border:1px solid #a7f3d0;padding:20px;border-radius:12px;text-align:left;margin-bottom:24px;'>" +
+                    "<div style='color:#065f46;font-weight:700;font-size:16px;margin-bottom:8px;display:flex;align-items:center;gap:8px;'>" +
+                    "<span>✅</span> <span>Toàn Bộ Dữ Liệu Kho Đã Tự Động Sao Lưu Ra File Excel An Toàn</span>" +
+                    "</div>" +
+                    "<div style='color:#047857;font-size:13.5px;line-height:1.6;margin-bottom:14px;'>" +
+                    "Bản sao lưu đầy đủ 5 sheet (Tồn kho tổng hợp, Chi tiết kiện pack & lô, Nhật ký biến động xuất nhập, Danh mục sản phẩm, Thông tin hệ thống) đã được lưu trữ vĩnh viễn trên máy tính của bạn:" +
+                    $"<br><code style='display:block;margin-top:6px;background:#ffffff;padding:8px 12px;border-radius:6px;border:1px solid #d1fae5;font-size:12px;word-break:break-all;color:#0f172a;font-family:Consolas,monospace;'>{latestBackup}</code>" +
+                    "</div>" +
+                    "<div style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;'>" +
+                    "<button onclick=\"window.chrome.webview.postMessage('open_backup_folder')\" style='background:#059669;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13px;box-shadow:0 2px 4px rgba(5,150,105,0.2);'>📂 Mở Thư Mục Chứa File Excel Backup</button>" +
+                    "<button onclick=\"window.chrome.webview.postMessage('trigger_backup')\" style='background:#f0fdf4;color:#065f46;border:1px solid #86efac;padding:10px 16px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13px;'>🔄 Cập Nhật Lại Bản Sao Lưu Mới</button>" +
+                    "</div>" +
+                    "</div>";
+            }
+            else
+            {
+                backupHtmlSection = 
+                    "<div style='background:#fef3c7;border:1px solid #fde68a;padding:20px;border-radius:12px;text-align:left;margin-bottom:24px;'>" +
+                    "<div style='color:#92400e;font-weight:700;font-size:16px;margin-bottom:8px;display:flex;align-items:center;gap:8px;'>" +
+                    "<span>📥</span> <span>Cơ Chế Bảo Toàn & Tự Động Sao Lưu Dữ Liệu Ra File Excel</span>" +
+                    "</div>" +
+                    "<div style='color:#78350f;font-size:13.5px;line-height:1.6;margin-bottom:14px;'>" +
+                    "Toàn bộ cơ sở dữ liệu trên máy quý khách luôn được bảo toàn 100% không bao giờ bị xóa. Bạn có thể xuất và lưu ngay toàn bộ số liệu kho ra file Excel nhiều sheet đầy đủ thông tin:" +
+                    "</div>" +
+                    "<div style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;'>" +
+                    "<button onclick=\"window.chrome.webview.postMessage('trigger_backup')\" style='background:#d97706;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13px;box-shadow:0 2px 4px rgba(217,119,6,0.2);'>📊 Xuất & Lưu Toàn Bộ Dữ Liệu Ra File Excel Ngay</button>" +
+                    "<button onclick=\"window.chrome.webview.postMessage('open_backup_folder')\" style='background:#ffffff;color:#374151;border:1px solid #cbd5e1;padding:10px 16px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13px;'>📂 Mở Thư Mục Backup</button>" +
+                    "</div>" +
+                    "</div>";
+            }
+
             webView.CoreWebView2.NavigateToString(
-                "<html><head><meta charset='utf-8'></head>" +
-                "<body style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;text-align:center;padding:80px 20px;background:#f8fafc;color:#1e293b;'>" +
-                "<div style='max-width:650px;margin:0 auto;background:#fff;padding:48px;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>" +
+                "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Hết Hạn Dùng Thử</title></head>" +
+                "<body style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;text-align:center;padding:50px 20px;background:#f8fafc;color:#1e293b;margin:0;'>" +
+                "<div style='max-width:680px;margin:0 auto;background:#fff;padding:40px;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>" +
                 "<div style='font-size:48px;margin-bottom:16px;'>🔒</div>" +
-                "<h1 style='color:#dc2626;font-size:26px;margin-bottom:16px;'>Bản Dùng Thử 3 Ngày Đã Hết Hạn</h1>" +
-                "<p style='font-size:16px;line-height:1.6;color:#64748b;margin-bottom:24px;'>" +
+                "<h1 style='color:#dc2626;font-size:24px;margin-bottom:12px;font-weight:700;'>Bản Dùng Thử 3 Ngày Đã Hết Hạn</h1>" +
+                "<p style='font-size:15px;line-height:1.6;color:#64748b;margin-bottom:24px;'>" +
                 $"Thời hạn trải nghiệm 3 ngày của hệ thống Quản Lý Kho (WMS) đã kết thúc vào <b>{effectiveExpiryDate:HH:mm:ss dd/MM/yyyy}</b>.<br/>" +
                 "Toàn bộ chức năng thao tác kho đã tạm thời khóa bảo vệ.</p>" +
-                "<div style='background:#f1f5f9;border-left:4px solid #3b82f6;padding:16px;text-align:left;border-radius:8px;font-size:15px;color:#334155;margin-bottom:28px;'>" +
+                backupHtmlSection +
+                "<div style='background:#f1f5f9;border-left:4px solid #3b82f6;padding:16px 20px;text-align:left;border-radius:8px;font-size:14.5px;color:#334155;margin-bottom:24px;'>" +
                 "<b>Để mở khóa sử dụng vĩnh viễn:</b><br/>" +
                 "1. Hoàn tất nghiệm thu & thanh toán với nhà phát triển.<br/>" +
                 "2. Nhận <b>Mã kích hoạt bản quyền chính thức</b>.<br/>" +
-                "3. Bấm vào nút <b>[🔑 Mã Bản Quyền]</b> hoặc bấm phím <b>F2</b> để mở khóa ngay lập tức." +
+                "3. Bấm vào nút <b>[🔑 Mã Bản Quyền]</b> trên thanh vàng hoặc bấm phím <b>F2</b> để mở khóa ngay lập tức." +
+                "</div>" +
+                "<div style='display:flex;justify-content:center;gap:12px;'>" +
+                "<button onclick=\"window.chrome.webview.postMessage('open_settings')\" style='background:#0f766e;color:#fff;border:none;padding:10px 20px;border-radius:6px;font-weight:600;cursor:pointer;font-size:14px;'>🔑 Nhập Mã Bản Quyền Kích Hoạt</button>" +
                 "</div>" +
                 "</div>" +
                 "</body></html>"
             );
         }
+    }
+
+    private async Task<bool> PerformExpiryBackupAsync(bool userInitiated)
+    {
+        try
+        {
+            string backupDir = Path.Combine(currentStoragePath, "Backups");
+            if (!Directory.Exists(backupDir))
+            {
+                Directory.CreateDirectory(backupDir);
+            }
+
+            string fileName = $"BaoCao_Backup_KhiHetHan_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+            string targetPath = Path.Combine(backupDir, fileName);
+
+            using var handler = new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (m, c, ch, p) => true
+            };
+            using var client = new HttpClient(handler)
+            {
+                Timeout = TimeSpan.FromSeconds(30)
+            };
+
+            string url = $"{currentServerUrl.TrimEnd('/')}/api/v1/reports/full-backup-excel";
+            var response = await client.GetAsync(url);
+            if (response.IsSuccessStatusCode)
+            {
+                var bytes = await response.Content.ReadAsByteArrayAsync();
+                if (bytes != null && bytes.Length > 0)
+                {
+                    await File.WriteAllBytesAsync(targetPath, bytes);
+                    lastCreatedBackupPath = targetPath;
+
+                    if (!this.IsDisposed && this.IsHandleCreated)
+                    {
+                        this.Invoke(() =>
+                        {
+                            ShowExpiredScreen();
+                            if (userInitiated)
+                            {
+                                MessageBox.Show($"Đã sao lưu thành công toàn bộ dữ liệu ra file Excel:\n{targetPath}", "Sao Lưu Thành Công", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            }
+                        });
+                    }
+                    return true;
+                }
+            }
+            else if (userInitiated)
+            {
+                this.Invoke(() =>
+                {
+                    MessageBox.Show($"Máy chủ chưa phản hồi dữ liệu sao lưu (HTTP {(int)response.StatusCode}). Vui lòng đảm bảo máy chủ/Docker đang hoạt động.", "Thông Báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            if (userInitiated)
+            {
+                this.Invoke(() =>
+                {
+                    MessageBox.Show($"Không thể kết nối đến máy chủ để sao lưu: {ex.Message}\nVui lòng kiểm tra Docker hoặc máy chủ đang bật.", "Lỗi Sao Lưu", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                });
+            }
+        }
+        return false;
+    }
+
+    private void ShowConnectionErrorScreen()
+    {
+        if (webView?.CoreWebView2 == null) return;
+
+        bool isLocal = currentServerUrl.Contains("localhost") || currentServerUrl.Contains("127.0.0.1");
+        string dockerExe = @"C:\Program Files\Docker\Docker\Docker Desktop.exe";
+        bool hasDocker = isLocal && File.Exists(dockerExe);
+
+        string dockerButtonHtml = hasDocker
+            ? "<button onclick=\"window.chrome.webview.postMessage('launch_docker')\" style='background:#2563eb;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;box-shadow:0 2px 4px rgba(37,99,235,0.2);'>🚀 Khởi Động Docker Desktop</button>"
+            : "";
+
+        string helpText = isLocal
+            ? "Máy chủ nội bộ (Localhost) chưa phản hồi. Vui lòng đảm bảo Docker Desktop đang chạy trước khi kết nối."
+            : "Không thể kết nối đến địa chỉ máy chủ. Vui lòng kiểm tra đường truyền mạng hoặc cấu hình lại địa chỉ máy chủ.";
+
+        webView.CoreWebView2.NavigateToString(
+            "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Lỗi Kết Nối Máy Chủ</title></head>" +
+            "<body style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;text-align:center;padding:60px 20px;background:#f8fafc;color:#1e293b;margin:0;'>" +
+            "<div style='max-width:540px;margin:0 auto;background:#ffffff;padding:36px;border-radius:12px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);border:1px solid #e2e8f0;'>" +
+            "<div style='font-size:42px;margin-bottom:12px;'>⚠️</div>" +
+            "<h2 style='color:#ea580c;margin:0 0 12px;font-size:20px;font-weight:700;'>Chưa Kết Nối Được Đến Máy Chủ Kho</h2>" +
+            $"<p style='font-size:14px;color:#64748b;line-height:1.6;margin:0 0 16px;'>Địa chỉ máy chủ đang kết nối: <br><strong style='color:#0f172a;word-break:break-all;'>{currentServerUrl}</strong></p>" +
+            $"<p style='font-size:13px;color:#475569;background:#f1f5f9;padding:10px 14px;border-radius:8px;margin:0 0 20px;line-height:1.5;'>{helpText}</p>" +
+            "<div style='display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:16px;'>" +
+            dockerButtonHtml +
+            "<button onclick=\"window.chrome.webview.postMessage('retry_current')\" style='background:#0284c7;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;'>🔄 Thử Kết Nối Lại</button>" +
+            "<button onclick=\"window.chrome.webview.postMessage('open_settings')\" style='background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;'>⚙️ Cài Đặt Máy Chủ</button>" +
+            "</div>" +
+            "<p style='font-size:12.5px;color:#94a3b8;margin:0;'>Mẹo: Bấm <b>F2</b> trên bàn phím bất kỳ lúc nào để mở bảng Cài đặt nhanh.</p>" +
+            "</div>" +
+            "</body></html>"
+        );
     }
 
     private async Task InitializeWebViewAsync()
@@ -609,6 +780,7 @@ public partial class Form1 : Form
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
             webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
+            webView.CoreWebView2.Settings.IsBuiltInErrorPageEnabled = false; // Tắt hoàn toàn màn hình lỗi mặc định của Edge để chống giật màn hình
 
             webView.CoreWebView2.ServerCertificateErrorDetected += (s, e) =>
             {
@@ -647,6 +819,37 @@ public partial class Form1 : Form
                     {
                         ShowUnifiedSettingsDialog();
                     }
+                    else if (msg == "open_backup_folder")
+                    {
+                        string backupDir = Path.Combine(currentStoragePath, "Backups");
+                        if (!Directory.Exists(backupDir)) Directory.CreateDirectory(backupDir);
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = "explorer.exe",
+                            Arguments = $"\"{backupDir}\"",
+                            UseShellExecute = true
+                        });
+                    }
+                    else if (msg == "trigger_backup")
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            await PerformExpiryBackupAsync(true);
+                        });
+                    }
+                    else if (msg == "launch_docker")
+                    {
+                        string dockerExe = @"C:\Program Files\Docker\Docker\Docker Desktop.exe";
+                        if (File.Exists(dockerExe))
+                        {
+                            Process.Start(new ProcessStartInfo(dockerExe) { UseShellExecute = true });
+                            MessageBox.Show("Đang mở Docker Desktop. Vui lòng đợi Docker khởi động hoàn tất (khoảng 20-30 giây) rồi bấm nút 'Thử Kết Nối Lại'.", "Khởi Động Docker", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }
+                        else
+                        {
+                            MessageBox.Show("Không tìm thấy Docker Desktop tại đường dẫn mặc định.", "Thông Báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        }
+                    }
                 }
                 catch { }
             };
@@ -659,47 +862,19 @@ public partial class Form1 : Form
 
                 if (e.IsSuccess)
                 {
-                    retryCount = 0;
                     return;
                 }
 
                 if (!e.IsSuccess && !IsExpiredOrTampered())
                 {
-                    // Tự động thử lại kết nối 1 lần sau 2s nếu mạng bị trễ
-                    if (retryCount < 1)
-                    {
-                        retryCount++;
-                        Task.Delay(2000).ContinueWith(_ =>
-                        {
-                            if (!this.IsDisposed && this.IsHandleCreated)
-                            {
-                                this.Invoke(() => webView.CoreWebView2?.Navigate(currentServerUrl));
-                            }
-                        });
-                        return;
-                    }
-
-                    retryCount = 0;
-                    webView.CoreWebView2.NavigateToString(
-                        "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Lỗi Kết Nối Máy Chủ</title></head>" +
-                        "<body style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;text-align:center;padding:60px 20px;background:#f8fafc;color:#1e293b;margin:0;'>" +
-                        "<div style='max-width:540px;margin:0 auto;background:#ffffff;padding:36px;border-radius:12px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1),0 8px 10px -6px rgba(0,0,0,0.1);border:1px solid #e2e8f0;'>" +
-                        "<div style='font-size:42px;margin-bottom:12px;'>⚠️</div>" +
-                        "<h2 style='color:#ea580c;margin:0 0 12px;font-size:20px;font-weight:700;'>Chưa Kết Nối Được Đến Máy Chủ Kho</h2>" +
-                        $"<p style='font-size:14px;color:#64748b;line-height:1.6;margin:0 0 20px;'>Địa chỉ máy chủ đang kết nối: <br><strong style='color:#0f172a;word-break:break-all;'>{currentServerUrl}</strong></p>" +
-                        "<div style='display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:16px;'>" +
-                        "<button onclick=\"window.chrome.webview.postMessage('retry_current')\" style='background:#0284c7;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;'>🔄 Thử Kết Nối Lại</button>" +
-                        "<button onclick=\"window.chrome.webview.postMessage('open_settings')\" style='background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:10px 18px;border-radius:6px;font-weight:600;cursor:pointer;font-size:13.5px;'>⚙️ Cài Đặt Máy Chủ</button>" +
-                        "</div>" +
-                        "<p style='font-size:12.5px;color:#94a3b8;margin:0;'>Mẹo: Bấm <b>F2</b> trên bàn phím bất kỳ lúc nào để mở bảng Cài đặt nhanh.</p>" +
-                        "</div>" +
-                        "</body></html>"
-                    );
+                    // Hiển thị ngay màn hình lỗi tùy chỉnh rõ ràng, không chạy vòng lặp ngầm tự reload gây chớp giật màn hình
+                    ShowConnectionErrorScreen();
                 }
             };
 
             if (IsExpiredOrTampered())
             {
+                TriggerExpiryBackupIfNeeded();
                 ShowExpiredScreen();
             }
             else

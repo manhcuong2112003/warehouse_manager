@@ -10,12 +10,37 @@ import {
 import { PassThrough } from "node:stream";
 import { ReportService } from "./report.service";
 import { ExcelService } from "./excel.service";
+import { Public } from "../identity/auth";
+
 @Controller("reports")
 export class ReportController {
   constructor(
     @Inject(ReportService) private reports: ReportService,
     @Inject(ExcelService) private excel: ExcelService,
   ) {}
+
+  @Public()
+  @Get("full-backup-excel")
+  async fullBackupExcel(
+    @Res() reply: any,
+    @Query("warehouseId") warehouseId?: string,
+  ) {
+    const buffer = await this.excel.exportFullBackup(warehouseId);
+    const dateStr = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Ho_Chi_Minh",
+    }).format(new Date());
+    reply
+      .header(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      )
+      .header(
+        "Content-Disposition",
+        `attachment; filename="WMS_FULL_BACKUP_${dateStr}.xlsx"`,
+      );
+    return reply.send(buffer);
+  }
+
   @Get("dashboard") dashboard(
     @Req() req: any,
     @Query("warehouseId") id: string,
