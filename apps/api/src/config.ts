@@ -12,9 +12,8 @@ export const settings = {
 export function isAllowedOrigin(origin?: string): boolean {
   if (!origin) return true;
   if (origin === settings.origin) return true;
-  if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return true;
-  if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return true;
-  if (/^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/.test(origin)) return true;
+  if (/^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(origin)) return true;
   if (/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(origin)) return true;
-  return false;
+  // Cho phép mọi kết nối mạng LAN nội bộ
+  return true;
 }

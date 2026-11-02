@@ -37,12 +37,17 @@ services:
       WEB_ORIGIN: ${LAN_ORIGIN:?Set https://your-domain}
       COOKIE_SECURE: "true"
       REDIS_URL: redis://redis:6379
+    volumes:
+      - ../apps/api/dist:/app/apps/api/dist:ro
     depends_on: {migrate: {condition: service_completed_successfully},redis: {condition: service_started}}
   web:
     build: {context: .., dockerfile: deploy/Dockerfile.web}
     restart: unless-stopped
-    ports: ["443:443"]
-    volumes: ["./certs:/etc/nginx/certs:ro"]
+    ports: ["443:443", "80:80"]
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
+      - ../apps/web/dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on: [api]
 volumes:
   postgres_data:
