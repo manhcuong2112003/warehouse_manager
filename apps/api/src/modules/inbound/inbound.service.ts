@@ -371,4 +371,185 @@ export class InboundService {
     this.changed(id);
     return result;
   }
+
+  async lookupCode(rawCode: string, warehouseId?: string) {
+    const raw = String(rawCode || "").trim();
+    if (!raw) return { found: false, message: "Mã quét trống" };
+
+    let parsedPartNo: string | undefined;
+    let parsedLotNo: string | undefined;
+    let parsedMesPack: string | undefined;
+
+    try {
+      const parsed = parseBarcode(raw);
+      parsedPartNo = parsed.partNo;
+      parsedLotNo = parsed.lotNo;
+      parsedMesPack = parsed.mesPackNo;
+    } catch {
+      // Dạng chuỗi thô không khớp định dạng tem chuẩn
+    }
+
+    return this.db.transaction(async (c) => {
+      // 1. Kiểm tra chính xác theo Mã Pack MES (quét tem 2D / QR code kiện hàng)
+      const targetMes = parsedMesPack || raw;
+      const packMatch = (
+        await c.query(
+          `SELECT b.*,
+            p.model, p.finished_goods_code, p.specification, p.part_no, p.base_uom,
+            l.code AS location_code, w.name AS warehouse_name,
+            to_char(b.mfg_date, 'DD/MM/YYYY') AS mfg_date_str,
+            to_char(b.expired_date, 'DD/MM/YYYY') AS expired_date_str,
+            (b.expired_date - (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date) AS days_left,
+            CASE 
+              WHEN b.expired_date <= (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date THEN 'EXPIRED'
+              WHEN b.expired_date <= (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + 30 THEN 'EXPIRING'
+              ELSE 'GOOD'
+            END AS aging_status
+           FROM stock_pack_balances b
+           JOIN products p ON p.id = b.product_id
+           JOIN locations l ON l.id = b.location_id
+           JOIN warehouses w ON w.id = l.warehouse_id
+           WHERE b.mes_pack_no = $1
+           LIMIT 1`,
+          [targetMes],
+        )
+      ).rows[0];
+
+      if (packMatch) {
+        const summary = (
+          await c.query(
+            `SELECT 
+               sum(b.on_hand) AS total_on_hand,
+               sum(b.reserved) AS total_reserved,
+               COALESCE(sum(CASE WHEN b.status = 'AVAILABLE' AND b.expired_date > (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date THEN (b.on_hand - b.reserved) ELSE 0 END), 0) AS total_available,
+               count(b.id) AS total_packs
+             FROM stock_pack_balances b
+             WHERE b.product_id = $1 AND b.on_hand > 0`,
+            [packMatch.product_id],
+          )
+        ).rows[0];
+
+        return {
+          found: true,
+          matchType: "PACK",
+          product: {
+            id: packMatch.product_id,
+            model: packMatch.model || "-",
+            finishedGoodsCode: packMatch.finished_goods_code || "-",
+            specification: packMatch.specification,
+            partNo: packMatch.part_no,
+            baseUom: packMatch.base_uom,
+            totalOnHand: Number(summary?.total_on_hand || 0),
+            totalAvailable: Number(summary?.total_available || 0),
+            totalPacks: Number(summary?.total_packs || 0),
+          },
+          targetPack: {
+            id: packMatch.id,
+            mesPackNo: packMatch.mes_pack_no,
+            lotNo: packMatch.lot_no,
+            locationCode: packMatch.location_code,
+            warehouseName: packMatch.warehouse_name,
+            vendorCode: packMatch.vendor_code,
+            onHand: Number(packMatch.on_hand),
+            reserved: Number(packMatch.reserved),
+            available: Number(packMatch.on_hand) - Number(packMatch.reserved),
+            mfgDate: packMatch.mfg_date_str || "-",
+            expiredDate: packMatch.expired_date_str,
+            daysLeft: Number(packMatch.days_left),
+            agingStatus: packMatch.aging_status,
+            stockStatus: packMatch.status,
+          },
+        };
+      }
+
+      // 2. Tra cứu theo Mã Linh Kiện (Part No), Lô (Lot), Model, Code thành phẩm
+      const searchKey = parsedPartNo || raw;
+      const products = (
+        await c.query(
+          `SELECT p.*,
+             COALESCE(sum(b.on_hand), 0) AS total_on_hand,
+             COALESCE(sum(b.reserved), 0) AS total_reserved,
+             COALESCE(sum(CASE WHEN b.status = 'AVAILABLE' AND b.expired_date > (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date THEN (b.on_hand - b.reserved) ELSE 0 END), 0) AS total_available,
+             count(b.id) FILTER (WHERE b.on_hand > 0) AS pack_count
+           FROM products p
+           LEFT JOIN stock_pack_balances b ON b.product_id = p.id AND b.on_hand > 0
+           WHERE p.part_no = $1 
+              OR p.part_no ILIKE '%'||$1||'%' 
+              OR p.model ILIKE '%'||$1||'%' 
+              OR p.finished_goods_code ILIKE '%'||$1||'%'
+              OR p.specification ILIKE '%'||$1||'%'
+              OR EXISTS (SELECT 1 FROM stock_pack_balances spb WHERE spb.product_id = p.id AND spb.lot_no ILIKE '%'||$1||'%')
+           GROUP BY p.id
+           ORDER BY 
+             CASE WHEN p.part_no = $1 THEN 0 ELSE 1 END,
+             total_on_hand DESC
+           LIMIT 5`,
+          [searchKey],
+        )
+      ).rows;
+
+      if (products.length > 0) {
+        const primaryProduct = products[0];
+        const packs = (
+          await c.query(
+            `SELECT b.*,
+               l.code AS location_code, w.name AS warehouse_name,
+               to_char(b.mfg_date, 'DD/MM/YYYY') AS mfg_date_str,
+               to_char(b.expired_date, 'DD/MM/YYYY') AS expired_date_str,
+               (b.expired_date - (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date) AS days_left,
+               CASE 
+                 WHEN b.expired_date <= (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date THEN 'EXPIRED'
+                 WHEN b.expired_date <= (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + 30 THEN 'EXPIRING'
+                 ELSE 'GOOD'
+               END AS aging_status
+             FROM stock_pack_balances b
+             JOIN locations l ON l.id = b.location_id
+             JOIN warehouses w ON w.id = l.warehouse_id
+             WHERE b.product_id = $1 AND b.on_hand > 0
+             ORDER BY b.expired_date ASC, b.created_at ASC
+             LIMIT 50`,
+            [primaryProduct.id],
+          )
+        ).rows.map((p) => ({
+          id: p.id,
+          mesPackNo: p.mes_pack_no,
+          lotNo: p.lot_no,
+          locationCode: p.location_code,
+          warehouseName: p.warehouse_name,
+          vendorCode: p.vendor_code,
+          onHand: Number(p.on_hand),
+          reserved: Number(p.reserved),
+          available: Number(p.on_hand) - Number(p.reserved),
+          mfgDate: p.mfg_date_str || "-",
+          expiredDate: p.expired_date_str,
+          daysLeft: Number(p.days_left),
+          agingStatus: p.aging_status,
+          stockStatus: p.status,
+        }));
+
+        return {
+          found: true,
+          matchType: "PRODUCT",
+          product: {
+            id: primaryProduct.id,
+            model: primaryProduct.model || "-",
+            finishedGoodsCode: primaryProduct.finished_goods_code || "-",
+            specification: primaryProduct.specification,
+            partNo: primaryProduct.part_no,
+            baseUom: primaryProduct.base_uom,
+            totalOnHand: Number(primaryProduct.total_on_hand),
+            totalAvailable: Number(primaryProduct.total_available),
+            totalPacks: Number(primaryProduct.pack_count),
+          },
+          packs,
+        };
+      }
+
+      return {
+        found: false,
+        rawCode: raw,
+        message: `Không tìm thấy thông tin phù hợp cho mã "${raw}".`,
+      };
+    });
+  }
 }

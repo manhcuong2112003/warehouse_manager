@@ -7,6 +7,7 @@ import {
   Post,
   Put,
   Delete,
+  Query,
   Req,
 } from "@nestjs/common";
 import { ensure } from "../../shared/errors";
@@ -107,5 +108,20 @@ export class InboundController {
         ).rows,
       };
     });
+  }
+
+  @Public()
+  @Post("scanner/lookup")
+  lookupPost(@Body() body: any) {
+    return this.inbound.lookupCode(body?.code, body?.warehouseId);
+  }
+
+  @Public()
+  @Get("scanner/lookup")
+  lookupGet(
+    @Query("code") code: string,
+    @Query("warehouseId") warehouseId?: string,
+  ) {
+    return this.inbound.lookupCode(code, warehouseId);
   }
 }

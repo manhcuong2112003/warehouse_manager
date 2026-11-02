@@ -26,7 +26,9 @@ import {
   MoonOutlined,
   TableOutlined,
   SettingOutlined,
+  MobileOutlined,
 } from "@ant-design/icons";
+import QRCode from "qrcode";
 import { api, post, setCsrf } from "./api";
 import { Dashboard, Inventory, Catalog, Outbound, OutboundMatrixPage } from "./pages/operations";
 import { Inbound } from "./pages/inbound";
@@ -51,7 +53,20 @@ export function WmsApp() {
     }),
     [isDarkTheme, setIsDarkTheme] = useState<boolean>(() => {
       return localStorage.getItem("wms_dark") === "true";
-    });
+    }),
+    [mobileLookupOpen, setMobileLookupOpen] = useState(false),
+    [lookupQrUrl, setLookupQrUrl] = useState<string>("");
+
+  const openMobileLookup = async () => {
+    try {
+      const url = new URL("/mobile-scan", location.origin);
+      url.hash = "mode=lookup";
+      setLookupQrUrl(
+        await QRCode.toDataURL(url.toString(), { width: 300, margin: 1 }),
+      );
+      setMobileLookupOpen(true);
+    } catch {}
+  };
 
   const entries = [
     { key: "dashboard", label: t("menu_dashboard"), icon: <DashboardOutlined /> },
@@ -251,6 +266,13 @@ export function WmsApp() {
             </Tag>
             <span className="user-name">{user.display_name}</span>
             <Button
+              icon={<MobileOutlined />}
+              onClick={openMobileLookup}
+              title="Quét mã tra cứu hàng hóa trên điện thoại"
+            >
+              📱 Tra Cứu ĐT
+            </Button>
+            <Button
               icon={isDarkTheme ? <SunOutlined /> : <MoonOutlined />}
               title={t("theme_btn")}
               onClick={() => {
@@ -409,6 +431,55 @@ export function WmsApp() {
             </Button>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={mobileLookupOpen}
+        onCancel={() => setMobileLookupOpen(false)}
+        footer={null}
+        title="📱 Quét Mã Để Mở Máy Quét Tra Cứu Trên Điện Thoại"
+        centered
+      >
+        <div style={{ textAlign: "center", padding: "16px 0" }}>
+          {lookupQrUrl && (
+            <img
+              src={lookupQrUrl}
+              alt="QR Code"
+              style={{
+                width: 240,
+                height: 240,
+                borderRadius: 12,
+                border: "1px solid #e2e8f0",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+              }}
+            />
+          )}
+          <div
+            style={{
+              marginTop: 16,
+              textAlign: "left",
+              background: isDarkTheme ? "#1f1f1f" : "#f8fafc",
+              padding: "12px 16px",
+              borderRadius: 8,
+              border: isDarkTheme ? "1px solid #333" : "1px solid #e2e8f0",
+              fontSize: 13.5,
+              color: isDarkTheme ? "#e2e8f0" : "#334155",
+              lineHeight: 1.6,
+            }}
+          >
+            <b>Hướng dẫn sử dụng máy quét điện thoại:</b>
+            <br />
+            1. Mở camera điện thoại quét mã QR ở trên.
+            <br />
+            2. Trình duyệt điện thoại sẽ mở máy quét thông minh.
+            <br />
+            3. Hướng camera vào bất kỳ tem hàng nào:
+            <ul style={{ margin: "4px 0 0", paddingLeft: 20, color: "#64748b" }}>
+              <li>Quét tem 2D MES Pack: xem ngay số lô, vị trí kệ, hạn dùng và tình trạng còn hạn/cận hạn.</li>
+              <li>Quét Barcode 1D (Part No/Lot No): xem tổng tồn kho, số lượng khả dụng xuất và các kiện theo FEFO.</li>
+            </ul>
+          </div>
+        </div>
       </Modal>
     </Layout>
   );

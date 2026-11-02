@@ -44,3 +44,4 @@ jobs:
           file: ./deploy/Dockerfile.web
           push: true
           tags: ghcr.io/${{ env.REPO_LC }}-web:latest
+
