@@ -1073,6 +1073,12 @@ public partial class Form1 : Form
 
     private void ApplyThemeToWebView()
     {
+        if (this.InvokeRequired)
+        {
+            try { this.Invoke(ApplyThemeToWebView); } catch { }
+            return;
+        }
+
         if (webView?.CoreWebView2 != null)
         {
             try
@@ -1092,6 +1098,12 @@ public partial class Form1 : Form
 
     private void ApplyFontSizeToWebView()
     {
+        if (this.InvokeRequired)
+        {
+            try { this.Invoke(ApplyFontSizeToWebView); } catch { }
+            return;
+        }
+
         if (webView?.CoreWebView2 != null)
         {
             try
@@ -1110,6 +1122,12 @@ public partial class Form1 : Form
 
     private async void ApplyLanguageToWebView()
     {
+        if (this.InvokeRequired)
+        {
+            try { this.Invoke(ApplyLanguageToWebView); } catch { }
+            return;
+        }
+
         if (webView?.CoreWebView2 != null)
         {
             try
@@ -1125,6 +1143,12 @@ public partial class Form1 : Form
 
     private void InjectHostLanIps()
     {
+        if (this.InvokeRequired)
+        {
+            try { this.Invoke(InjectHostLanIps); } catch { }
+            return;
+        }
+
         if (webView?.CoreWebView2 != null)
         {
             try
